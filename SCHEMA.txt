@@ -1,0 +1,17 @@
+metadata
+  inode INT PRIMARY KEY, 
+  mode INT,
+  nlink INT,
+  uid INT,
+  gid INT,
+  size INT,
+  blksize int,
+  atime INT,
+  mtime INT,
+  ctime INT,
+
+data
+  inode INT,
+  index INT,
+  data BLOB,
+  PRIMARY KEY (inode, index)
