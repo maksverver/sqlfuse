@@ -1,9 +1,14 @@
 #include <assert.h>
+#include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
+#include "fuse.h"
 #include "fuse_lowlevel.h"
 
 #include "logging.h"
@@ -50,51 +55,129 @@ static int sqlfuse_main(int argc, char* argv[]) {
   return err;
 }
 
-char *extract_first_argument(int *argc, char ***argv) {
-  if (*argc < 2) {
-    return NULL;
+struct args {
+  bool help;
+  bool version;
+  bool no_password;
+  bool create_db;
+  const char *filepath;
+};
+
+struct args extract_arguments(int *argc, char **argv) {
+  struct args args = {
+    .help = false,
+    .version = false,
+    .no_password = false,
+    .create_db = false,
+    .filepath = NULL };
+  const int n = *argc;
+  int j = 1;
+  assert(n >= 1);
+  for (int i = j; i < n; ++i) {
+    char *arg = argv[i];
+    if (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0) {
+      args.no_password = true;
+    } else if (strcmp(arg, "-c") == 0 || strcmp(arg, "--create") == 0) {
+      args.create_db = true;
+    } else if (arg[0] != '-' && args.filepath == NULL) {
+      args.filepath = arg;
+    } else {
+      // Keep this argument.
+      argv[j++] = arg;
+
+      // -h/--help and -V/--version will be passed through to fuse_main().
+      if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
+        args.help = true;
+      } else if (strcmp(arg, "-V") == 0 || strcmp(arg, "--version") == 0) {
+        args.version = true;
+      }
+    }
   }
-  char *result = (*argv)[1];
-  int n = --*argc;
-  for (int i = 1; i < n; ++i) {
-    (*argv)[i] = (*argv)[i + 1];
-  }
-  (*argv)[n] = NULL;
-  return result;
+  *argc = j;
+  argv[j] = NULL;
+  return args;
 }
 
-// Usage:
-//
-//  sqlfuse <database path> <mountpoint> [fuse options]
-//
-// Will prompt for the password before mounting.
-//
-// Note: access checking is not implemented. Add -o default_permissions to the
-// command line to defer access checking to the kernel, especially when using
-// -o allow_others (which is not recommended!)
-int main(int argc, char *argv[]) {
-  char *filepath = extract_first_argument(&argc, &argv);
-  if (filepath == NULL) {
+// Verifies that either args->filepath exists if and only if args->create_db is false.
+static bool validate_filepath(const struct args *args) {
+  if (args->filepath == NULL) {
     fprintf(stderr, "Missing database path argument.\n");
+    return false;
+  }
+  struct stat st;
+  if (stat(args->filepath, &st) != 0) {
+    if (errno != ENOENT) {
+      perror(NULL);
+      return false;
+    }
+    if (!args->create_db) {
+      fprintf(stderr, "Database '%s' does not exist. (Use the -c/--create option to create it.)\n", args->filepath);
+      return false;
+    }
+  } else {
+    if (!S_ISREG(st.st_mode)) {
+      fprintf(stderr, "Database '%s' is not a regular file.\n", args->filepath);
+      return false;
+    }
+    if (args->create_db) {
+      fprintf(stderr, "Database '%s' already exists. (Remove the -c/--create option to open it.)\n", args->filepath);
+      return false;
+    }
+  }
+  return true;
+}
+
+int main(int argc, char *argv[]) {
+  struct args args = extract_arguments(&argc, argv);
+
+  if (args.help || args.version) {
+    if (args.version) {
+      // TODO: print sqlfuse version?
+      printf("sqlfuse version 0.0\n");
+    }
+    if (args.help) {
+      fputs(
+          "Usage: sqlfuse [options] <database> <mountpoint>\n"
+          "\n"
+          "Supported sqlfuse options:\n"
+          "    -n   --no_password    don't prompt for password (disables encryption)\n"
+          "    -c   --create         create a new database\n"
+          "\n",
+          stdout);
+    }
+
+    // BUG: this prints usage for the high-level FUSE API, while we're really
+    // using the low-level API. TODO: fix this somehow?
+    fuse_main(argc, argv, NULL, NULL);
+    return 0;
+  }
+
+  if (!validate_filepath(&args)) {
     return 1;
   }
-  char *password = getpass("Password: ");
-  if (password == NULL) {
-    fprintf(stderr, "Failed to read password.\n");
-    return 1;
+
+  char *password = NULL;
+  if (!args.no_password) {
+    password = getpass("Password: ");
+    if (password == NULL) {
+      fprintf(stderr, "Failed to read password.\n");
+      return 1;
+    }
+    if (!*password) {
+      fprintf(stderr, "Empty password not accepted. (Use the -n/--no_password option to disable encryption.)\n");
+      return 1;
+    }
   }
-  if (!*password) {
-    fprintf(stderr, "WARNING! Empty password given. No encryption will be used!\n");
-    password = NULL;
-  }
-  struct sqlfs *sqlfs = sqlfs_create(filepath, password);
+
+  struct sqlfs *sqlfs = sqlfs_create(args.filepath, password);
   if (password != NULL) {
-    /* Clean password for security reasons. */
+    // Clean password for security. The derived key is still in memory, but it's
+    // better than nothing.
     memset(password, 0, strlen(password));
     password = NULL;
   }
   if (!sqlfs) {
-    fprintf(stderr, "Failed to open database %s!\n", filepath);
+    fprintf(stderr, "Failed to open database '%s'.\n", args.filepath);
     fclose(stderr);
     return 1;
   }

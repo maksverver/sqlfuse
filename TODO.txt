@@ -1,11 +1,4 @@
 Things to test:
   - open read-only file
 
-main():
-  - add separate option for empty password (-n?) and exit with error if an
-    empty password is supplied
-  - add separate option for creating a new database. Check that target file
-    exists iff. option is absent; exit with error otherwise. This prevents
-    errors like doing `sqlfuse -s bla.db mnt` which silently creates a file
-    called `-s` because the option is in the wrong place.
-  - move usage info to NOTES.txt
+  - create a README with some information and usage notes.
