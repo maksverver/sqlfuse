@@ -23,6 +23,8 @@ static int sqlfuse_main(int argc, char* argv[]) {
     if (multithreaded) {
       fprintf(stderr, "WARNING! Multi-threading not supported; running single-threaded. (Pass -s to suppress this warning.)\n");
     }
+    logging_enabled = foreground != 0;
+
     struct fuse_chan *chan = fuse_mount(mountpoint, &args);
     if (chan != NULL) {
       struct fuse_session *session = fuse_lowlevel_new(

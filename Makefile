@@ -2,15 +2,15 @@ CFLAGS=-Wall -Wextra -std=c99 -g -O2 `pkg-config --cflags fuse sqlcipher` -DSQLI
 LDLIBS=`pkg-config --libs fuse sqlcipher`
 OBJS=logging.o main.o sqlfs.o sqlfuse.o
 
-all: main
+all: sqlfuse
 
-main: $(OBJS)
+sqlfuse: $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
 clean:
 	rm -f $(OBJS)
 
 distclean: clean
-	rm -f main
+	rm -f sqlfuse
 
 .PHONY: all clean distclean
