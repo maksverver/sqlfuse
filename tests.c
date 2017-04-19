@@ -29,9 +29,9 @@
 #include "sqlfuse.h"
 
 static int failures = 0;
-static const char *testdir;
-static const char *mountpoint;
-static const char *database;
+static char *testdir;
+static char *mountpoint;
+static char *database;
 static struct sqlfs *sqlfs;
 static struct fuse_args fuse_args;
 static struct fuse_chan *fuse_chan;
@@ -85,7 +85,13 @@ static void global_setup() {
 
 static void global_teardown() {
   CHECK(rmdir(mountpoint) == 0);
+  free(mountpoint);
+  mountpoint = NULL;
   CHECK(rmdir(testdir) == 0);
+  free(testdir);
+  testdir = NULL;
+  free(database);
+  database = NULL;
 }
 
 static void *fuse_thread_func(void *arg) {
