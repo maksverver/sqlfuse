@@ -44,7 +44,7 @@ static pthread_t fuse_thread;
 void expect_eq(const char *file, int line, const char *func, const char *expr1, const char *expr2, int value1, int value2) {
   if (value1 == value2) return;
   fprintf(stderr, "[%s:%d] Assertion failed in %s(). Expected %s (%d) to be equal to %s (%d).\n",
-    file, line, func, expr1, value1, expr2, value2);
+      file, line, func, expr1, value1, expr2, value2);
   ++failures;
 }
 
@@ -60,14 +60,16 @@ static char *aprintf(const char *format, ...) {
 
   va_start(ap, format);
   int n = vsnprintf(NULL, 0, format, ap);
-  CHECK(n >= 0);
   va_end(ap);
 
+  CHECK(n >= 0);
   char *buf = malloc(n + 1);
   CHECK(buf);
+
   va_start(ap, format);
-  CHECK(vsnprintf(buf, n + 1, format, ap) == n);
+  vsnprintf(buf, n + 1, format, ap);
   va_end(ap);
+
   return buf;
 }
 
