@@ -1,4 +1,9 @@
+Next:
+  - Implement some functions, add some unit tests!
+
 Things to test:
   - open read-only file
+  - sqlfs tests with encryption (no setup/teardown)
 
+General TODO:
   - create a README with some information and usage notes.
