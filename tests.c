@@ -111,7 +111,7 @@ static void setup() {
   fuse_session = fuse_lowlevel_new(&fuse_args, &sqlfuse_ops, sizeof(sqlfuse_ops), NULL /* userdata */);
   CHECK(fuse_session);
   fuse_session_add_chan(fuse_session, fuse_chan);
-  //fuse_set_signal_handlers(fuse_session);
+
   CHECK(pthread_create(&fuse_thread, NULL /* attr */, fuse_thread_func, fuse_session /* arg */) == 0);
 }
 
@@ -122,7 +122,6 @@ static void teardown() {
   CHECK(pthread_join(fuse_thread, &retval) == 0);
   EXPECT_EQ((int)(ssize_t)retval, 0);
 
-  //fuse_remove_signal_handlers(fuse_session);
   fuse_session_remove_chan(fuse_chan);
   fuse_session_destroy(fuse_session);
   fuse_unmount(mountpoint, fuse_chan);
