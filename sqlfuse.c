@@ -15,12 +15,37 @@
 // Temporary! TODO: Remove this once the sqlfuse_* functions are implemented.
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+#define TRACE(...) \
+  do { \
+    if (logging_enabled) { \
+      fprintf(stderr, "[%s:%d] %s() ", __FILE__, __LINE__, __FUNCTION__); \
+      __VA_ARGS__; \
+      fputs("\n", stderr); \
+    } \
+  } while(0)
+
+#define TRACE_INT(i) fprintf(stderr, "%s=%lld", #i, (long long)i);
+#define TRACE_UINT(ui) fprintf(stderr, "%s=%llu", #ui, (unsigned long long)ui)
+#define TRACE_STR(s) print_str(stderr, #s, s)
+
+static void print_str(FILE *fp, const char *key, const char *value) {
+  fprintf(fp, "%s=\"", key);
+  for (const char *s = value; *s; ++s) {
+    if (*s >= 32 && *s < 127) {  // assumes ASCII/UTF-8, but it's 2017 ffs.
+      fputc(*s, fp);
+    } else {
+      fprintf(fp, "\\%03o", *s);
+    }
+  }
+  fputc('"', fp);
+}
+
 static void sqlfuse_init(void *userdata, struct fuse_conn_info *conn) {
-  LOG("sqlfuse_init()\n");
+  TRACE();
 }
 
 static void sqlfuse_destroy(void *userdata) {
-  LOG("sqlfuse_destroy()\n");
+  TRACE();
 }
 
 static void reply_err(fuse_req_t req, int err) {
@@ -31,77 +56,90 @@ static void reply_err(fuse_req_t req, int err) {
 }
 
 static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
+  TRACE(TRACE_UINT(parent), TRACE_STR(name));
+  LOG("sqlfuse_lookup(parent=%llu, name=%s)\n", (unsigned long long)parent, name);
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup) {
+  TRACE(TRACE_UINT(ino), TRACE_UINT(nlookup));
   fuse_reply_none(req);
 }
 
 static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
     int to_set, struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino), TRACE_INT(to_set));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
     mode_t mode, dev_t rdev) {
+  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(mode), TRACE_UINT(rdev));
   reply_err(req, ENOSYS);
 }
 
-static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
-    mode_t mode) {
+static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode) {
+  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(mode));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
+  TRACE(TRACE_UINT(parent), TRACE_STR(name));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
+  TRACE(TRACE_UINT(parent), TRACE_STR(name));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     fuse_ino_t newparent, const char *newname) {
+  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(newparent), TRACE_STR(newname));
   reply_err(req, ENOSYS);
 }
 
-static void sqlfuse_open(fuse_req_t req, fuse_ino_t ino,
-    struct fuse_file_info *fi) {
+static void sqlfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
     size_t size, off_t off, struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
   reply_err(req, ENOSYS);
 }
 
-static void sqlfuse_release(fuse_req_t req, fuse_ino_t ino,
-    struct fuse_file_info *fi) {
+static void sqlfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino));
   reply_err(req, ENOSYS);
 }
 
-static void sqlfuse_opendir(fuse_req_t req, fuse_ino_t ino,
-    struct fuse_file_info *fi) {
+static void sqlfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_readdir(fuse_req_t req, fuse_ino_t ino,
     size_t size, off_t off, struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_releasedir(fuse_req_t req, fuse_ino_t ino,
     struct fuse_file_info *fi) {
+  TRACE(TRACE_UINT(ino));
   reply_err(req, ENOSYS);
 }
 
