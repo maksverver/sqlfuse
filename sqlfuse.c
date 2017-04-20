@@ -18,18 +18,23 @@
 #define TRACE(...) \
   do { \
     if (logging_enabled) { \
-      fprintf(stderr, "[%s:%d] %s() ", __FILE__, __LINE__, __FUNCTION__); \
+      fprintf(stderr, "[%s:%d] %s()", __FILE__, __LINE__, __FUNCTION__); \
       __VA_ARGS__; \
-      fputs("\n", stderr); \
+      fputc('\n', stderr); \
     } \
   } while(0)
 
-#define TRACE_INT(i) fprintf(stderr, "%s=%lld", #i, (long long)i);
-#define TRACE_UINT(ui) fprintf(stderr, "%s=%llu", #ui, (unsigned long long)ui)
-#define TRACE_STR(s) print_str(stderr, #s, s)
+#define TRACE_INT(i) fprintf(stderr, " %s=%lld", #i, (long long)i);
+#define TRACE_UINT(ui) fprintf(stderr, " %s=%llu", #ui, (unsigned long long)ui)
+#define TRACE_STR(s) trace_str(stderr, #s, s)
 
-static void print_str(FILE *fp, const char *key, const char *value) {
-  fprintf(fp, "%s=\"", key);
+static void trace_str(FILE *fp, const char *key, const char *value) {
+  fprintf(fp, " %s=", key);
+  if (value == NULL) {
+    fputs("NULL", fp);
+    return;
+  }
+  fputc('"', fp);
   for (const char *s = value; *s; ++s) {
     if (*s >= 32 && *s < 127) {  // assumes ASCII/UTF-8, but it's 2017 ffs.
       fputc(*s, fp);
