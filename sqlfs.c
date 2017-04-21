@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <sqlite3.h>
@@ -71,7 +72,9 @@ static bool sql_get_user_version(struct sqlfs *sqlfs, int64_t *user_version) {
   return result;
 }
 
-struct sqlfs *sqlfs_create(const char *filepath, const char *password) {
+struct sqlfs *sqlfs_create(
+    const char *filepath, const char *password,
+    uid_t uid, gid_t gid, mode_t mode) {
   struct sqlfs *sqlfs = calloc(1, sizeof(struct sqlfs));
   if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) goto failed;
 
