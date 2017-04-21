@@ -106,24 +106,9 @@ struct sqlfs *sqlfs_create(
   if (version == 0) {
     /* Database was newly created. Initialize it. */
     sql_begin_transaction(sqlfs);
-    exec_sql(sqlfs->db,
-        "CREATE TABLE metadata(\n"
-        "    ino INT NOT NULL PRIMARY KEY,\n"
-        "    mode INT NOT NULL,\n"
-        "    nlink INT NOT NULL,\n"
-        "    size INT NOT NULL,\n"
-        "    blksize INT NOT NULL,\n"
-        "    mtime INT NOT NULL,\n"
-        "    ctime INT NOT NULL\n"
-        ")");
-    exec_sql(sqlfs->db,
-        "CREATE TABLE data(\n"
-        "   ino INT NOT NULL,\n"
-        "   idx INT NOT NULL,\n"
-        "   data BLOB NOT NULL,\n"
-        "   PRIMARY KEY (ino, idx)\n"
-        "   FOREIGN KEY (ino) REFERENCES metadata(ino) ON DELETE CASCADE\n"
-        ")");
+#define SQL_STATEMENT(sql) exec_sql(sqlfs->db, #sql);
+#include "sqlfs_schema.h"
+#undef SQL_STATEMENT
     exec_sql(sqlfs->db, "PRAGMA user_version = 1");
     sql_commit_transaction(sqlfs);
   } else if (version != 1) {

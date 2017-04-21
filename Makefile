@@ -15,6 +15,9 @@ all: sqlfuse
 test: tests
 	./tests
 
+sqlfs.o: sqlfs.c sqlfs.h sqlfs_schema.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
 sqlfuse: $(SQLFUSE_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(SQLFUSE_OBJS) $(LDLIBS)
 
