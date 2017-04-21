@@ -41,7 +41,7 @@ SQL_STATEMENT(
     dir_ino INT NOT NULL,      // references metadata(ino)
     entry_name TEXT NOT NULL,  // see above
     entry_ino INT NOT NULL,    // references metadata(ino)
-    entry_mode INT NOT NULL,   // file type bits only (see S_IFMT)
+    entry_type INT NOT NULL,   // file type bits (mode >> 12)
     PRIMARY KEY (dir_ino, entry_name)
   )
 )
