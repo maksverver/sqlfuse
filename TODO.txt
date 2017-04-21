@@ -5,5 +5,15 @@ Things to test:
   - open read-only file
   - sqlfs tests with encryption (no setup/teardown)
 
+TBD:
+  - what should the uid/gid/mode of the root directory be?
+  - should we apply the umask manually, or does the kernel handle this?
+    (test it with mkdir once that works!)
+
+Decisions to document somewhere:
+  - ctime and atime are not stored. (They're not very useful.)
+
 General TODO:
   - create a README with some information and usage notes.
+  - fully document the schema definition (wait until the implementation is
+    further along; no point documenting it when it's likely to change)
