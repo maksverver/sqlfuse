@@ -101,7 +101,7 @@ static void *fuse_thread_func(void *arg) {
 }
 
 static void setup() {
-  sqlfs = sqlfs_create(database, NULL /*password*/);
+  sqlfs = sqlfs_create(database, NULL /*password*/, 022 /* umask */, geteuid(), getegid());
   CHECK(sqlfs);
 
   char *argv[2] = {"test", NULL};
