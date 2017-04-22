@@ -1,5 +1,8 @@
 Next:
   - Implement some functions, add some unit tests!
+  - Maybe: separate functions to create/open existing database?
+  - If creating the database fails, should we delete the partially-created
+    database file (which will be empty)
 
 Things to test:
   - open read-only file
@@ -17,3 +20,4 @@ General TODO:
   - create a README with some information and usage notes.
   - fully document the schema definition (wait until the implementation is
     further along; no point documenting it when it's likely to change)
+  - fsck tool that checks internal consistency?
