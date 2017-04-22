@@ -1,9 +1,12 @@
-CFLAGS=-Wall -Wextra -std=c99 -g -O2 `pkg-config --cflags fuse sqlcipher` -DSQLITE_HAS_CODEC -D_BSD_SOURCE -DFUSE_USE_VERSION=26
+CFLAGS=-Wall -Wextra -std=c99 -D_BSD_SOURCE -D_POSIX_C_SOURCE=199309 -g -O2 `pkg-config --cflags fuse sqlcipher` -DSQLITE_HAS_CODEC -DFUSE_USE_VERSION=26
 LDLIBS=`pkg-config --libs fuse sqlcipher`
 
 # Some platforms may need this to run tests.
 CFLAGS+=-pthread
 LDLIBS+=-lpthread
+
+# Some platforms may need:
+#LDLIBS+=-lrt
 
 COMMON_OBJS=logging.o sqlfs.o sqlfuse.o
 ALL_OBJS=$(COMMON_OBJS) main.o tests.o

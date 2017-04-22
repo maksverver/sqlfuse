@@ -15,6 +15,13 @@
 #include "sqlfs.h"
 #include "sqlfuse.h"
 
+// Returns the current umask. WARNING: This is not thread-safe!
+static mode_t getumask() {
+  mode_t mask = umask(0);
+  CHECK(umask(mask) == 0);
+  return mask;
+}
+
 // Runs the FUSE low-level main loop. Returns 0 on success.
 // Based on: https://github.com/libfuse/libfuse/blob/fuse_2_6_bugfix/example/hello_ll.c
 static int sqlfuse_main(int argc, char* argv[]) {
@@ -169,7 +176,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  struct sqlfs *sqlfs = sqlfs_create(args.filepath, password);
+  struct sqlfs *sqlfs = sqlfs_create(args.filepath, password, getumask(), geteuid(), getegid());
   if (password != NULL) {
     // Clean password for security. The derived key is still in memory, but it's
     // better than nothing.

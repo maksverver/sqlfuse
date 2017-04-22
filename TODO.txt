@@ -1,6 +1,7 @@
 Next:
   - Implement some functions, add some unit tests!
-  - Maybe: separate functions to create/open existing database?
+  - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
+  - sqlfs.c: Maybe: separate functions to create/open existing database?
   - If creating the database fails, should we delete the partially-created
     database file (which will be empty)
 

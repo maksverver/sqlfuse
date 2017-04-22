@@ -22,12 +22,12 @@ struct sqlfs;
 //
 //  filepath: path to the database file.
 //  password: password to use. May be NULL to disable encryption.
-//  mode: file permission bits of root directory (if creating a new filesystem)
-//  uid: owner id of root directory (if creating a new filesystem)
-//  gid: group id of root directory (if creating a new filesystem)
+//  umask: umask to use for this session
+//  uid: user id to use for this session
+//  gid: group id to use for this session
 struct sqlfs *sqlfs_create(
     const char *filepath, const char *password,
-    mode_t mode, uid_t uid, gid_t gid);
+    mode_t umask, uid_t uid, gid_t gid);
 
 // Destroys the filesystem state. Afterwards, the state should not be used.
 void sqlfs_destroy(struct sqlfs *sqlfs);
