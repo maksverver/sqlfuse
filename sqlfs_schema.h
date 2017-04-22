@@ -6,12 +6,12 @@ SQL_STATEMENT(
   CREATE TABLE metadata(
     ino INT PRIMARY KEY,  // must be positive. 1 means root.
     mode INT NOT NULL,
-    nlink INT NOT NULL,
+    nlink INT NOT NULL,  // for directories: number of subdirectories + 2
     uid INT NOT NULL,
     gid INT NOT NULL,
-    size INT NOT NULL,
+    size INT,  // size of file; NULL for directories
     blksize INT,  // size of filedata blocks for files; NULL for directories
-    mtime INT  // in nanoseconds; atime/ctime are not supported
+    mtime INT NOT NULL // in nanoseconds; atime/ctime are not supported
   )
 )
 
