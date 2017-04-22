@@ -18,24 +18,43 @@
 
 #define ROOT_INO ((ino_t) 1)
 
+// "Blocksize for IO" as returned in the st_blksize field of struct stat.
+#define BLKSIZE 4096
+
+#define NANOS_PER_SECOND 1000000000
+
 enum statements {
   STMT_BEGIN_TRANSACTION,
   STMT_COMMIT_TRANSACTION,
+  STMT_STAT,
   NUM_STATEMENTS };
+
 
 static const char *statements[NUM_STATEMENTS] = {
   /* STMT_BEGIN_TRANSACTION */
   "BEGIN TRANSACTION",
+
   /* STMT_COMMIT_TRANSACTION */
   "COMMIT TRANSACTION",
+
+  /* STMT_STAT */
+#define PARAM_STAT_INO   1
+#define COL_STAT_MODE    0
+#define COL_STAT_NLINK   1
+#define COL_STAT_UID     2
+#define COL_STAT_GID     3
+#define COL_STAT_SIZE    4
+#define COL_STAT_BLKSIZE 5
+#define COL_STAT_MTIME   6
+  "SELECT mode, nlink, uid, gid, size, blksize, mtime FROM metadata WHERE ino = ?"
 };
 
 struct sqlfs {
   sqlite3 *db;
-  sqlite3_stmt *stmt[NUM_STATEMENTS];
   mode_t umask;
   uid_t uid;
   gid_t gid;
+  sqlite3_stmt *stmt[NUM_STATEMENTS];
 };
 
 static bool prepare(sqlite3 *db, const char *sql, sqlite3_stmt **stmt) {
@@ -46,24 +65,23 @@ static bool prepare(sqlite3 *db, const char *sql, sqlite3_stmt **stmt) {
   return true;
 }
 
-static void exec_stmt(sqlite3_stmt *stmt) {
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-}
-
 static void exec_sql(sqlite3 *db, const char *sql) {
   sqlite3_stmt *stmt = NULL;
   CHECK(prepare(db, sql, &stmt));
-  exec_stmt(stmt);
+  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   sqlite3_finalize(stmt);
 }
 
 static void sql_begin_transaction(struct sqlfs *sqlfs) {
-  exec_stmt(sqlfs->stmt[STMT_BEGIN_TRANSACTION]);
+  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_BEGIN_TRANSACTION];
+  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
 }
 
 static void sql_commit_transaction(struct sqlfs *sqlfs) {
-  exec_stmt(sqlfs->stmt[STMT_COMMIT_TRANSACTION]);
+  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_COMMIT_TRANSACTION];
+  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
 }
 
 static bool sql_get_user_version(struct sqlfs *sqlfs, int64_t *user_version) {
@@ -83,7 +101,20 @@ static bool sql_get_user_version(struct sqlfs *sqlfs, int64_t *user_version) {
 static int64_t current_time_nanos() {
   struct timespec tp;
   CHECK(clock_gettime(CLOCK_REALTIME, &tp) == 0);
-  return (int64_t)tp.tv_sec * 1000000000 + tp.tv_nsec;
+  return (int64_t)tp.tv_sec * NANOS_PER_SECOND + tp.tv_nsec;
+}
+
+static struct timespec nanos_to_timespec(int64_t nanos) {
+  int64_t sec = nanos / NANOS_PER_SECOND;
+  int64_t nsec = nanos % NANOS_PER_SECOND;
+  if (nsec < 0) {
+    sec -= 1;
+    nsec += NANOS_PER_SECOND;
+  }
+  struct timespec res = {
+    .tv_sec  = sec,
+    .tv_nsec = nsec };
+  return res;
 }
 
 static void create_root_directory(struct sqlfs *sqlfs) {
@@ -120,10 +151,6 @@ struct sqlfs *sqlfs_create(
 
   if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) goto failed;
 
-  for (int i = 0; i < NUM_STATEMENTS; ++i) {
-    if (!prepare(sqlfs->db, statements[i], &sqlfs->stmt[i])) goto failed;
-  }
-
   /* TODO: set password */
   /* TODO: and other options (check doc!) */
 
@@ -147,16 +174,20 @@ struct sqlfs *sqlfs_create(
 
   if (version == 0) {
     /* Database was newly created. Initialize it. */
-    sql_begin_transaction(sqlfs);
+    exec_sql(sqlfs->db, "BEGIN TRANSACTION");
 #define SQL_STATEMENT(sql) exec_sql(sqlfs->db, #sql);
 #include "sqlfs_schema.h"
 #undef SQL_STATEMENT
     exec_sql(sqlfs->db, "PRAGMA user_version = 1");
     create_root_directory(sqlfs);
-    sql_commit_transaction(sqlfs);
+    exec_sql(sqlfs->db, "COMMIT TRANSACTION");
   } else if (version != 1) {
     fprintf(stderr, "Wrong version number: %d (expected 1)\n", (int)version);
     goto failed;
+  }
+
+  for (int i = 0; i < NUM_STATEMENTS; ++i) {
+    if (!prepare(sqlfs->db, statements[i], &sqlfs->stmt[i])) goto failed;
   }
 
   return sqlfs;
@@ -167,8 +198,11 @@ failed:
 }
 
 void sqlfs_destroy(struct sqlfs *sqlfs) {
-  /* TODO: wait for threads to finish?  Or should caller do that? */
-  /* TODO: Applications should finalize all prepared statements, close all BLOB handles, and finish all sqlite3_backup objects associated with the sqlite3 object prior to attempting to close the object. */
+  // From the SQLite docs:
+  //  "Applications should finalize all prepared statements, close all BLOB
+  //   handles, and finish all sqlite3_backup objects associated with the
+  //   sqlite3 object prior to attempting to close the object."
+  // TODO: make sure that has actually happened!
   assert(sqlfs);
   for (int i = 0; i < NUM_STATEMENTS; ++i) {
     if (sqlfs->stmt[i]) {
@@ -179,4 +213,37 @@ void sqlfs_destroy(struct sqlfs *sqlfs) {
     CHECK(sqlite3_close(sqlfs->db) == SQLITE_OK);
   }
   free(sqlfs);
+}
+
+bool sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_STAT];
+  sqlite3_bind_int64(stmt, PARAM_STAT_INO, ino);
+  int res = sqlite3_step(stmt);
+  if (res != SQLITE_ROW) {
+    // File not found?
+    CHECK(res == SQLITE_DONE);
+    goto finished;
+  }
+  memset(stat, 0, sizeof(struct stat));
+  stat->st_ino = ino;
+  stat->st_mode = sqlite3_column_int64(stmt, COL_STAT_MODE);
+  stat->st_nlink = sqlite3_column_int64(stmt, COL_STAT_NLINK);
+  stat->st_uid = sqlite3_column_int64(stmt, COL_STAT_UID);
+  stat->st_gid = sqlite3_column_int64(stmt, COL_STAT_GID);
+  // stat->st_rdev is kept zero.
+  const int64_t size = sqlite3_column_int64(stmt, COL_STAT_SIZE);
+  stat->st_size = size;
+  // Blocksize for filesystem I/O
+  stat->st_blksize = sqlite3_column_type(stmt, COL_STAT_BLKSIZE) == SQLITE_NULL
+      ? BLKSIZE : sqlite3_column_int64(stmt, COL_STAT_BLKSIZE);
+  // Size in 512 byte blocks. Unrelated to blocksize above!
+  stat->st_blocks = (size + 511) >> 9;
+  // atim/mtim/ctim are all set to the last modification timestamp.
+  stat->st_atim = stat->st_mtim = stat->st_ctim =
+    nanos_to_timespec(sqlite3_column_int64(stmt, COL_STAT_MTIME));
+  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+finished:
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return res == SQLITE_ROW;
 }

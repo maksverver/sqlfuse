@@ -12,9 +12,6 @@
 
 #include "fuse_lowlevel.h"
 
-// "Blocksize for IO" as returned in the st_blksize field of struct stat.
-#define BLKSIZE 4096
-
 // Temporary! TODO: Remove this once the sqlfuse_* functions are implemented.
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
@@ -76,28 +73,12 @@ static void sqlfuse_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup
 
 static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino));
-  // Valid replies: fuse_reply_attr fuse_reply_err
-  if (ino == 1) {
-    // Technically, directories must have a hardlink count of 2 + number of
-    // subdirectories, since each directory is referred to by its parent, the
-    // '.' entry, and '..' entry of each of its subdirectories. (The root is
-    // special: in that case, there is no parent directory, but instead the '..'
-    // entry of the root refers to the root itself, so the count is the same).
-    struct stat attr = {
-      .st_ino = ino,
-      .st_mode = S_IFDIR | 0755,
-      .st_nlink = 2,  // directory must have two entries
-      .st_uid = 0,
-      .st_gid = 0,
-      .st_rdev = 0,
-      .st_size = 0,
-      .st_blksize = BLKSIZE,  // blocksize for I/O
-      .st_blocks = 0,   // number of 512B blocks allocated
-      // TODO: atime, mtime, ctime? second or nanosecond resolution?
-    };
+
+  struct stat attr;
+  if (sqlfs_stat(fuse_req_userdata(req), ino, &attr)) {
     fuse_reply_attr(req, &attr, 0.0 /* attr_timeout */);
   } else {
-    reply_err(req, ENOSYS);
+    reply_err(req, ENOENT);
   }
 }
 

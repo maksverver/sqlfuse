@@ -24,7 +24,7 @@ static mode_t getumask() {
 
 // Runs the FUSE low-level main loop. Returns 0 on success.
 // Based on: https://github.com/libfuse/libfuse/blob/fuse_2_6_bugfix/example/hello_ll.c
-static int sqlfuse_main(int argc, char* argv[]) {
+static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs) {
   int err = -1;
   struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
   char *mountpoint = NULL;
@@ -40,7 +40,7 @@ static int sqlfuse_main(int argc, char* argv[]) {
     struct fuse_chan *chan = fuse_mount(mountpoint, &args);
     if (chan != NULL) {
       struct fuse_session *session = fuse_lowlevel_new(
-          &args, &sqlfuse_ops, sizeof(sqlfuse_ops), NULL /* userdata */);
+          &args, &sqlfuse_ops, sizeof(sqlfuse_ops), sqlfs /* userdata */);
       if (session != NULL) {
 
         // Daemonization happens here! Afterwards, the cwd will be / and output
@@ -188,7 +188,7 @@ int main(int argc, char *argv[]) {
     fclose(stderr);
     return 1;
   }
-  int err = sqlfuse_main(argc, argv);
+  int err = sqlfuse_main(argc, argv, sqlfs);
   sqlfs_destroy(sqlfs);
   return err ? 1 : 0;
 }

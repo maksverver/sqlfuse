@@ -6,6 +6,8 @@
 #ifndef SQLFS_H_INCLUDED
 #define SQLFS_H_INCLUDED
 
+#include <stdbool.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -31,5 +33,7 @@ struct sqlfs *sqlfs_create(
 
 // Destroys the filesystem state. Afterwards, the state should not be used.
 void sqlfs_destroy(struct sqlfs *sqlfs);
+
+bool sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat);
 
 #endif
