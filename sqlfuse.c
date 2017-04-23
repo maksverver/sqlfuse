@@ -75,11 +75,11 @@ static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
   TRACE(TRACE_UINT(ino));
 
   struct stat attr;
-  if (sqlfs_stat(fuse_req_userdata(req), ino, &attr)) {
-    fuse_reply_attr(req, &attr, 0.0 /* attr_timeout */);
-  } else {
-    reply_err(req, ENOENT);
+  int err = sqlfs_stat(fuse_req_userdata(req), ino, &attr);
+  if (err != 0) {
+    return reply_err(req, err);
   }
+  fuse_reply_attr(req, &attr, 0.0 /* attr_timeout */);
 }
 
 static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,

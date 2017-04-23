@@ -1,6 +1,7 @@
 #include "sqlfs.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -215,15 +216,11 @@ void sqlfs_destroy(struct sqlfs *sqlfs) {
   free(sqlfs);
 }
 
-bool sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
+int sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_STAT];
   sqlite3_bind_int64(stmt, PARAM_STAT_INO, ino);
-  int res = sqlite3_step(stmt);
-  if (res != SQLITE_ROW) {
-    // File not found?
-    CHECK(res == SQLITE_DONE);
-    goto finished;
-  }
+  int status = sqlite3_step(stmt);
+  if (status != SQLITE_ROW) goto finished;
   memset(stat, 0, sizeof(struct stat));
   stat->st_ino = ino;
   stat->st_mode = sqlite3_column_int64(stmt, COL_STAT_MODE);
@@ -245,5 +242,11 @@ bool sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
 finished:
   CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  return res == SQLITE_ROW;
+  if (status == SQLITE_ROW) {
+    return 0;  // Success.
+  }
+  if (status == SQLITE_DONE) {
+    return ENOENT;  // Row not found.
+  }
+  return EIO;  // Other SQLite error.
 }
