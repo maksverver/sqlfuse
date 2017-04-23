@@ -4,14 +4,14 @@
 SQL_STATEMENT(
   // TODO: document this in more detail
   CREATE TABLE metadata(
-    ino INT PRIMARY KEY,  // must be positive. 1 means root.
-    mode INT NOT NULL,
-    nlink INT NOT NULL,  // for directories: number of subdirectories + 2
-    uid INT NOT NULL,
-    gid INT NOT NULL,
-    size INT,  // size of file; NULL for directories
-    blksize INT,  // size of filedata blocks for files; NULL for directories
-    mtime INT NOT NULL // in nanoseconds; atime/ctime are not supported
+    ino INTEGER PRIMARY KEY NOT NULL,  // must be positive. 1 means root.
+    mode INTEGER NOT NULL,
+    nlink INTEGER NOT NULL,  // for directories: number of subdirectories + 2
+    uid INTEGER NOT NULL,
+    gid INTEGER NOT NULL,
+    size INTEGER,  // size of file; NULL for directories
+    blksize INTEGER,  // size of filedata blocks for files; NULL for directories
+    mtime INTEGER NOT NULL // in nanoseconds; atime/ctime are not supported
   )
 )
 
@@ -23,11 +23,12 @@ SQL_STATEMENT(
 SQL_STATEMENT(
   // TODO: document this in more detail
   CREATE TABLE filedata(
-    ino INT NOT NULL,  // references metadata(ino)
-    idx INT NOT NULL,
+    ino INTEGER NOT NULL,  // references metadata(ino)
+    idx INTEGER NOT NULL,
     data BLOB NOT NULL,
     PRIMARY KEY (ino, idx)
   )
+  // TODO: should this be declared WITHOUT ROWID for efficiency?
 )
 
 SQL_STATEMENT(
@@ -38,10 +39,11 @@ SQL_STATEMENT(
   //
   // Entry names may not be empty, "." or "..", or contain "/" or "\0".
   CREATE TABLE direntries(
-    dir_ino INT NOT NULL,      // references metadata(ino)
+    dir_ino INTEGER NOT NULL,      // references metadata(ino)
     entry_name TEXT NOT NULL,  // see above
-    entry_ino INT NOT NULL,    // references metadata(ino)
-    entry_type INT NOT NULL,   // file type bits (mode >> 12)
+    entry_ino INTEGER NOT NULL,    // references metadata(ino)
+    entry_type INTEGER NOT NULL,   // file type bits (mode >> 12)
     PRIMARY KEY (dir_ino, entry_name)
   )
+  // TODO: should this be declared WITHOUT ROWID for efficiency?
 )
