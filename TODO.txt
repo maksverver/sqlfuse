@@ -1,14 +1,22 @@
 Next:
-  - Implement some functions, add some unit tests!
+  - Clean up the mess I make while implementing mkdir()!
+     - see TODOs is sqlfs.c
+     - then add support for rmdir too
+     - then add some more test coverage!
+
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
   - sqlfs.c: Maybe: separate functions to create/open existing database?
   - If creating the database fails, should we delete the partially-created
     database file (which will be empty)
+  - Figure out which functions increase the 'lookup count' for an inode;
+    document this somewhere.
 
 Things to test:
   - open read-only file
+  - use after unlink/rename of files
   - re-open existing file, verify contents are still there.
   - sqlfs tests with encryption (no setup/teardown)
+  - tests should dump database state after test & check it makes sense.
 
 TBD:
   - what should the uid/gid/mode of the root directory be?
@@ -17,6 +25,11 @@ TBD:
 
 Decisions to document somewhere:
   - ctime and atime are not stored. (They're not very useful.)
+  - For performance reasons, the inode PRIMARY KEY in the metadata table is not
+    declared as AUTOINCREMENT. Because we always set the `generation` field to a
+    fixed value, that means the filesystem cannot be exported over NFS! An
+    alternative solution would be to store the creation timestamp in the
+    metadata table, and use that as the generation number.
 
 General TODO:
   - create a README with some information and usage notes.

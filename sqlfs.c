@@ -1,3 +1,11 @@
+// Naming conventios used in this file:
+//
+//  - Function names starting with "sqlfs_" indicate exported functions with a
+//    declaration in sqlfs.h (which is also where they are documented).
+//  - Function names starting with "sql_" indicate those functions mainly execute
+//    SQL statements. They will be declared static.
+//  - Other helper functions use no particular prefix. They will also be static.
+
 #include "sqlfs.h"
 
 #include <assert.h>
@@ -27,27 +35,68 @@
 enum statements {
   STMT_BEGIN_TRANSACTION,
   STMT_COMMIT_TRANSACTION,
+  STMT_ROLLBACK_TRANSACTION,
   STMT_STAT,
+  STMT_STAT_ENTRY,
+  STMT_INC_NLINK,
+  STMT_INSERT_METADATA,
+  STMT_INSERT_DIRENTRIES,
   NUM_STATEMENTS };
 
+// SQL strings for prepared statements. This could just be an array of strings,
+// but including the `id` allows us to verify that array indices correspond one-
+// to-one with the enumerators above, as a sanity-check.
+static const struct Statement {
+  int id;
+  const char *sql;
+} statements[NUM_STATEMENTS + 1] = {
+  { STMT_BEGIN_TRANSACTION,
+    "BEGIN TRANSACTION"},
 
-static const char *statements[NUM_STATEMENTS] = {
-  /* STMT_BEGIN_TRANSACTION */
-  "BEGIN TRANSACTION",
+  { STMT_COMMIT_TRANSACTION,
+    "COMMIT TRANSACTION"},
 
-  /* STMT_COMMIT_TRANSACTION */
-  "COMMIT TRANSACTION",
+  { STMT_ROLLBACK_TRANSACTION,
+    "ROLLBACK TRANSACTION"},
 
-  /* STMT_STAT */
+  { STMT_STAT,
 #define PARAM_STAT_INO   1
-#define COL_STAT_MODE    0
-#define COL_STAT_NLINK   1
-#define COL_STAT_UID     2
-#define COL_STAT_GID     3
-#define COL_STAT_SIZE    4
-#define COL_STAT_BLKSIZE 5
-#define COL_STAT_MTIME   6
-  "SELECT mode, nlink, uid, gid, size, blksize, mtime FROM metadata WHERE ino = ?"
+#define COL_STAT_INO     0
+#define COL_STAT_MODE    1
+#define COL_STAT_NLINK   2
+#define COL_STAT_UID     3
+#define COL_STAT_GID     4
+#define COL_STAT_SIZE    5
+#define COL_STAT_BLKSIZE 6
+#define COL_STAT_MTIME   7
+#define SELECT_METADATA "SELECT ino, mode, nlink, uid, gid, size, blksize, mtime FROM metadata"
+    SELECT_METADATA " WHERE ino = ?" },
+
+  { STMT_STAT_ENTRY,
+#define PARAM_STAT_ENTRY_DIR_INO    1
+#define PARAM_STAT_ENTRY_ENTRY_NAME 2
+    SELECT_METADATA " INNER JOIN direntries ON ino = entry_ino WHERE dir_ino = ? AND entry_name = ?" },
+
+  { STMT_INC_NLINK,
+#define PARAM_INC_NLINK_INO 1
+    "UPDATE metadata SET nlink = nlink + 1 WHERE ino = ?" },
+
+  { STMT_INSERT_METADATA,
+#define PARAM_INSERT_METADATA_MODE  1
+#define PARAM_INSERT_METADATA_NLINK 2
+#define PARAM_INSERT_METADATA_UID   3
+#define PARAM_INSERT_METADATA_GID   4
+#define PARAM_INSERT_METADATA_MTIME 5
+    "INSERT INTO metadata(mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?)" },
+
+  { STMT_INSERT_DIRENTRIES,
+#define PARAM_INSERT_DIRENTRIES_DIR_INO    1
+#define PARAM_INSERT_DIRENTRIES_ENTRY_NAME 2
+#define PARAM_INSERT_DIRENTRIES_ENTRY_INO  3
+#define PARAM_INSERT_DIRENTRIES_ENTRY_TYPE 4
+    "INSERT INTO direntries(dir_ino, entry_name, entry_ino, entry_type) VALUES (?, ?, ?, ?)" },
+
+  {-1, NULL}
 };
 
 struct sqlfs {
@@ -57,6 +106,19 @@ struct sqlfs {
   gid_t gid;
   sqlite3_stmt *stmt[NUM_STATEMENTS];
 };
+
+enum name_kind { NAME_EMPTY, NAME_DOT, NAME_DOTDOT, NAME_REGULAR };
+
+// NOTE: this doesn't identify names containing a slash (which are invalid too).
+static enum name_kind name_kind(const char *name) {
+  CHECK(name);
+  if (name[0] == '\0') return NAME_EMPTY;
+  if (name[0] != '.') return NAME_REGULAR;
+  if (name[1] == '\0') return NAME_DOT;
+  if (name[1] != '.') return NAME_REGULAR;
+  if (name[2] == '\0') return NAME_DOTDOT;
+  return NAME_REGULAR;
+}
 
 static bool prepare(sqlite3 *db, const char *sql, sqlite3_stmt **stmt) {
   if (sqlite3_prepare_v2(db, sql, -1, stmt, NULL) != SQLITE_OK) {
@@ -85,6 +147,12 @@ static void sql_commit_transaction(struct sqlfs *sqlfs) {
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
 }
 
+static void sql_rollback_transaction(struct sqlfs *sqlfs) {
+  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_ROLLBACK_TRANSACTION];
+  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+}
+
 static bool sql_get_user_version(struct sqlfs *sqlfs, int64_t *user_version) {
   bool result = false;
   sqlite3_stmt *stmt = NULL;
@@ -99,10 +167,19 @@ static bool sql_get_user_version(struct sqlfs *sqlfs, int64_t *user_version) {
   return result;
 }
 
-static int64_t current_time_nanos() {
+static struct timespec current_timespec() {
   struct timespec tp;
   CHECK(clock_gettime(CLOCK_REALTIME, &tp) == 0);
-  return (int64_t)tp.tv_sec * NANOS_PER_SECOND + tp.tv_nsec;
+  return tp;
+}
+
+static int64_t timespec_to_nanos(const struct timespec *tp) {
+  return (int64_t)tp->tv_sec * NANOS_PER_SECOND + tp->tv_nsec;
+}
+
+static int64_t current_time_nanos() {
+  struct timespec tp = current_timespec();
+  return timespec_to_nanos(&tp);
 }
 
 static struct timespec nanos_to_timespec(int64_t nanos) {
@@ -118,6 +195,11 @@ static struct timespec nanos_to_timespec(int64_t nanos) {
   return res;
 }
 
+// Creates the root directory in an empty, newly created filesystem.
+//
+// This is basically a special-case version of sqlfs_mkdir that doesn't use
+// prepared statements so it can be called during initialization, before the
+// schema has been committed.
 static void create_root_directory(struct sqlfs *sqlfs) {
   sqlite3_stmt *stmt = NULL;
 
@@ -139,6 +221,141 @@ static void create_root_directory(struct sqlfs *sqlfs) {
   CHECK(sqlite3_bind_int64(stmt, 4, mode >> 12) == SQLITE_OK);
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   sqlite3_finalize(stmt);
+}
+
+static void fill_stat(sqlite3_stmt *stmt, struct stat *stat) {
+  memset(stat, 0, sizeof(struct stat));
+  stat->st_ino = sqlite3_column_int64(stmt, COL_STAT_INO);
+  stat->st_mode = sqlite3_column_int64(stmt, COL_STAT_MODE);
+  stat->st_nlink = sqlite3_column_int64(stmt, COL_STAT_NLINK);
+  stat->st_uid = sqlite3_column_int64(stmt, COL_STAT_UID);
+  stat->st_gid = sqlite3_column_int64(stmt, COL_STAT_GID);
+  // stat->st_rdev is kept zero.
+  const int64_t size = sqlite3_column_int64(stmt, COL_STAT_SIZE);
+  stat->st_size = size;
+  // Blocksize for filesystem I/O
+  stat->st_blksize = sqlite3_column_type(stmt, COL_STAT_BLKSIZE) == SQLITE_NULL
+      ? BLKSIZE : sqlite3_column_int64(stmt, COL_STAT_BLKSIZE);
+  // Size in 512 byte blocks. Unrelated to blocksize above!
+  stat->st_blocks = (size + 511) >> 9;
+  // atim/mtim/ctim are all set to the last modification timestamp.
+  stat->st_atim = stat->st_mtim = stat->st_ctim =
+    nanos_to_timespec(sqlite3_column_int64(stmt, COL_STAT_MTIME));
+}
+
+static int finish_stat_query(sqlite3_stmt *stmt, struct stat *stat) {
+  int err = -1;
+  int status = sqlite3_step(stmt);
+  if (status == SQLITE_DONE) {
+    err = ENOENT;
+  } else if (status == SQLITE_ROW) {
+    fill_stat(stmt, stat);
+    CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+    err = 0;
+  } else {
+    LOG("[%s:%d] status=%d\n", __FILE__, __LINE__, status);
+    err = EIO;
+  }
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(err >= 0);
+  return err;
+}
+
+static int sql_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_name, struct stat *stat) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_STAT_ENTRY];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_STAT_ENTRY_DIR_INO, dir_ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_text(stmt, PARAM_STAT_ENTRY_ENTRY_NAME, entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
+  return finish_stat_query(stmt, stat);
+}
+
+// TODO: document this
+// TODO: should size/blocksize column be set (for files, but not directories?)
+// Returns 0 on success, EIO on SQLite error.
+static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, struct stat *stat) {
+  memset(stat, 0, sizeof(*stat));
+  stat->st_mode = mode;
+  stat->st_nlink = nlink;
+  stat->st_uid = sqlfs->uid;
+  stat->st_gid = sqlfs->gid;
+  stat->st_blksize = BLKSIZE;
+  stat->st_mtim = stat->st_ctim = stat->st_atim = current_timespec();
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_INSERT_METADATA];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_MODE, mode) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_NLINK, nlink) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_UID, sqlfs->uid) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_GID, sqlfs->gid) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_MTIME, timespec_to_nanos(&stat->st_mtim)) == SQLITE_OK);
+
+  int status = sqlite3_step(stmt);
+  if (status != SQLITE_DONE) {
+    LOG("[%s:%d] status=%d\n", __FILE__, __LINE__, status);
+  } else {
+    stat->st_ino = sqlite3_last_insert_rowid(sqlfs->db);
+    CHECK(stat->st_ino > 0);
+  }
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return stat->st_ino > 0 ? 0 : EIO;
+}
+
+// Increments the hardlink count for the given inode number.
+//
+// Returns:
+//  0 on success,
+//  ENOENT if the ino does not exist
+//  EIO for other SQLite errors
+static int sql_inc_nlink(struct sqlfs *sqlfs, ino_t ino) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_INC_NLINK];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INC_NLINK_INO, ino) == SQLITE_OK);
+  int err = -1;
+  int status = sqlite3_step(stmt);
+  if (status != SQLITE_DONE) {
+    LOG("[%s:%d] status=%d\n", __FILE__, __LINE__, status);
+    err = EIO;
+    goto finish;
+  }
+  int changes = sqlite3_changes(sqlfs->db);
+  if (changes == 0) {
+    err = ENOENT;
+    goto finish;
+  }
+  CHECK(changes == 1);
+  err = 0;
+finish:
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(err >= 0);
+  return err;
+}
+
+// Insert an entry into the direntries table. Only the file type bits of mode are stored!
+// Entry name must not be "." or "..", but it may be the empty string, which corresponds
+// with "..".
+//
+// Returns:
+//  0 on success
+//  EEXIST if the named entry already exists
+//  EIO if another SQLite error occurred
+static int sql_insert_direntries(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_name, ino_t entry_ino, mode_t entry_mode) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_INSERT_DIRENTRIES];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_DIRENTRIES_DIR_INO, dir_ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_text(stmt, PARAM_INSERT_DIRENTRIES_ENTRY_NAME, entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_DIRENTRIES_ENTRY_INO, entry_ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_DIRENTRIES_ENTRY_TYPE, entry_mode >> 12) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  switch (status) {
+  case SQLITE_DONE:
+    return 0;
+  case SQLITE_CONSTRAINT:
+    return EEXIST;
+  default:
+    LOG("[%s:%d] %s(dir_ino=%lld, entry_name=%s, entry_ino=%lld, entry_mode=0%o) status=%d\n",
+        __FILE__, __LINE__, __func__, (long long)dir_ino, entry_name, (long long)entry_ino, entry_mode, status);
+    return EIO;
+  }
 }
 
 struct sqlfs *sqlfs_create(
@@ -187,8 +404,10 @@ struct sqlfs *sqlfs_create(
     goto failed;
   }
 
+  // This must be done after the schema has been created.
   for (int i = 0; i < NUM_STATEMENTS; ++i) {
-    if (!prepare(sqlfs->db, statements[i], &sqlfs->stmt[i])) goto failed;
+    CHECK(statements[i].id == i);
+    if (!prepare(sqlfs->db, statements[i].sql, &sqlfs->stmt[i])) goto failed;
   }
 
   return sqlfs;
@@ -218,35 +437,135 @@ void sqlfs_destroy(struct sqlfs *sqlfs) {
 
 int sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_STAT];
-  sqlite3_bind_int64(stmt, PARAM_STAT_INO, ino);
-  int status = sqlite3_step(stmt);
-  if (status != SQLITE_ROW) goto finished;
-  memset(stat, 0, sizeof(struct stat));
-  stat->st_ino = ino;
-  stat->st_mode = sqlite3_column_int64(stmt, COL_STAT_MODE);
-  stat->st_nlink = sqlite3_column_int64(stmt, COL_STAT_NLINK);
-  stat->st_uid = sqlite3_column_int64(stmt, COL_STAT_UID);
-  stat->st_gid = sqlite3_column_int64(stmt, COL_STAT_GID);
-  // stat->st_rdev is kept zero.
-  const int64_t size = sqlite3_column_int64(stmt, COL_STAT_SIZE);
-  stat->st_size = size;
-  // Blocksize for filesystem I/O
-  stat->st_blksize = sqlite3_column_type(stmt, COL_STAT_BLKSIZE) == SQLITE_NULL
-      ? BLKSIZE : sqlite3_column_int64(stmt, COL_STAT_BLKSIZE);
-  // Size in 512 byte blocks. Unrelated to blocksize above!
-  stat->st_blocks = (size + 511) >> 9;
-  // atim/mtim/ctim are all set to the last modification timestamp.
-  stat->st_atim = stat->st_mtim = stat->st_ctim =
-    nanos_to_timespec(sqlite3_column_int64(stmt, COL_STAT_MTIME));
-  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-finished:
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  if (status == SQLITE_ROW) {
-    return 0;  // Success.
+  CHECK(sqlite3_bind_int64(stmt, PARAM_STAT_INO, ino) == SQLITE_OK);
+  return finish_stat_query(stmt, stat);
+}
+
+// Looks up a single directory entry. If succesful, the child inode number is
+// returned in *ino, and (only!) the file type bits of the child inode in *mode.
+//
+// Return value:
+//  0 on success
+//  EINVAL if name is empty
+//  ENOENT if not found
+//  EIO on sqlite error
+static int lookup(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
+    ino_t *child_ino, mode_t *child_mode) {
+  const char *name_to_lookup = NULL;
+  switch (name_kind(name)) {
+    case NAME_DOT:
+      // TODO: need a test for this.
+      // TODO: what if dir_ino does not exist or is not a directory?
+      *child_ino = dir_ino;
+      *child_mode = S_IFDIR;
+      return 0;
+
+    case NAME_DOTDOT:
+      name_to_lookup = "";
+      break;
+
+    case NAME_REGULAR:
+      name_to_lookup = name;
+      break;
+
+    default:
+      return EINVAL;
   }
-  if (status == SQLITE_DONE) {
-    return ENOENT;  // Row not found.
+  // TODO: implement!
+  return ENOENT;
+}
+
+int sqlfs_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
+    struct stat *stat) {
+  switch (name_kind(name)) {
+  case NAME_DOT:
+    return sqlfs_stat(sqlfs, dir_ino, stat);
+
+  case NAME_DOTDOT:
+    return sql_stat_entry(sqlfs, dir_ino, "", stat);
+
+  case NAME_REGULAR:
+    return sql_stat_entry(sqlfs, dir_ino, name, stat);
+
+  default:
+    return EINVAL;
   }
-  return EIO;  // Other SQLite error.
+}
+
+int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mode,
+    struct stat *stat) {
+  memset(stat, 0, sizeof(*stat));
+  if (name_kind(name) != NAME_REGULAR) {
+    return EINVAL;
+  }
+
+  sql_begin_transaction(sqlfs);
+
+  struct stat dir_stat;
+  int err = sqlfs_stat(sqlfs, dir_ino, &dir_stat);
+  if (err != 0) {
+    goto finish;
+  }
+  if (!S_ISDIR(dir_stat.st_mode)) {
+    err = ENOTDIR;
+    goto finish;
+  }
+  err = sql_inc_nlink(sqlfs, dir_ino);
+  if (err != 0) {
+    goto finish;
+  }
+  mode = (mode & 0777 & ~sqlfs->umask) | S_IFDIR;
+  err = sql_insert_metadata(sqlfs, mode, 2 /*  nlink */, stat);
+  if (err != 0) {
+    goto finish;
+  }
+  // Insert child into parent subdirectory.
+  err = sql_insert_direntries(sqlfs, dir_ino, name, stat->st_ino, stat->st_mode);
+  if (err != 0) {
+    goto finish;
+  }
+  // Create reference from child to parent.
+  err = sql_insert_direntries(sqlfs, stat->st_ino, "", dir_stat.st_ino, dir_stat.st_mode);
+  if (err != 0) {
+    goto finish;
+  }
+  err = 0;  // Succes
+
+finish:
+  if (err == 0) {
+    sql_commit_transaction(sqlfs);
+  } else {
+    sql_rollback_transaction(sqlfs);
+  }
+  return err;
+}
+
+// TODO TODO TODO
+// This is an unfinished mess!
+// TODO TODO TODO
+int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name) {
+  // TODO: should return ENOTDIR instead of ENOENT if dir_ino refers to a file.
+  ino_t child_ino = 0;
+  mode_t child_mode = 0;
+  int err = lookup(sqlfs, dir_ino, name, &child_ino, &child_mode);
+  if (err != 0) {
+    return err;  // ENOENT or EIO
+  }
+  if (!S_ISDIR(child_mode)) {
+    return ENOTDIR;
+  }
+  if (child_ino == ROOT_INO) {
+    return EBUSY;
+  }
+  if (child_ino == dir_ino) {
+    return EINVAL;
+  }
+  // TODO: in a transaction:
+  //  - check if directory is empty
+  //  - if not, return ENOTEMPTY
+  //  - if so, delete remaining direntry and metadata, and return 0
+  //  - if any query fails, return EIO
+  //  - update hardlink count
+  //  - add tests for hardlink counting!
+  return 0;
 }

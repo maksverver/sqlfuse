@@ -12,13 +12,17 @@
 
 #include "fuse_lowlevel.h"
 
+// We don't use generation numbers! But we also don't guarantee not to re-use
+// any inode numbers. That means the file system cannot safely be used over NFS!
+#define GENERATION 1
+
 // Temporary! TODO: Remove this once the sqlfuse_* functions are implemented.
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
 #define TRACE(...) \
   do { \
     if (logging_enabled) { \
-      fprintf(stderr, "[%s:%d] %s()", __FILE__, __LINE__, __FUNCTION__); \
+      fprintf(stderr, "[%s:%d] %s()", __FILE__, __LINE__, __func__); \
       __VA_ARGS__; \
       fputc('\n', stderr); \
     } \
@@ -27,6 +31,7 @@
 #define TRACE_INT(i) fprintf(stderr, " %s=%lld", #i, (long long)i);
 #define TRACE_UINT(ui) fprintf(stderr, " %s=%llu", #ui, (unsigned long long)ui)
 #define TRACE_STR(s) trace_str(stderr, #s, s)
+#define TRACE_MODE(m) fprintf(stderr, " %s=0%o", #m, (int)m)
 
 static void trace_str(FILE *fp, const char *key, const char *value) {
   fprintf(fp, " %s=", key);
@@ -60,10 +65,27 @@ static void reply_err(fuse_req_t req, int err) {
   }
 }
 
+static void reply_entry(fuse_req_t req, const struct fuse_entry_param *entry) {
+  int res = fuse_reply_entry(req, entry);
+  if (res != 0) {
+    LOG("WARNING: fuse_reply_entry() returned %d\n", res);
+  } else {
+    // TODO: accounting of lookup counts!
+  }
+}
+
 static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
-  LOG("sqlfuse_lookup(parent=%llu, name=%s)\n", (unsigned long long)parent, name);
-  reply_err(req, ENOSYS);
+
+  struct fuse_entry_param entry;
+  memset(&entry, 0, sizeof(entry));
+  int err = sqlfs_stat_entry(fuse_req_userdata(req), parent, name, &entry.attr);
+  if (err != 0) {
+    return reply_err(req, err);
+  }
+  entry.ino = entry.attr.st_ino;
+  entry.generation = GENERATION;
+  return reply_entry(req, &entry);
 }
 
 static void sqlfuse_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup) {
@@ -90,13 +112,22 @@ static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 
 static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
     mode_t mode, dev_t rdev) {
-  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(mode), TRACE_UINT(rdev));
+  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode), TRACE_UINT(rdev));
   reply_err(req, ENOSYS);
 }
 
 static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode) {
-  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(mode));
-  reply_err(req, ENOSYS);
+  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode));
+
+  struct fuse_entry_param entry;
+  memset(&entry, 0, sizeof(entry));
+  int err = sqlfs_mkdir(fuse_req_userdata(req), parent, name, mode, &entry.attr);
+  if (err != 0) {
+    return reply_err(req, err);
+  }
+  entry.ino = entry.attr.st_ino;
+  entry.generation = GENERATION;
+  return reply_entry(req, &entry);
 }
 
 static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
@@ -106,9 +137,9 @@ static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) 
 
 static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
-  // NOTE: deleting non-empty directories is not allowed.
-  // NOTE: deleting the root directory itself is not allowed.
-  reply_err(req, ENOSYS);
+
+  int err = sqlfs_rmdir(fuse_req_userdata(req), parent, name);
+  return reply_err(req, err);
 }
 
 static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,

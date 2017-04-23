@@ -29,6 +29,10 @@
 #include "sqlfs.h"
 #include "sqlfuse.h"
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 static int failures = 0;
 static char *testdir;
 static char *mountpoint;
@@ -39,8 +43,8 @@ static struct fuse_chan *fuse_chan;
 static struct fuse_session *fuse_session;
 static pthread_t fuse_thread;
 
-#define EXPECT_EQ(x, y) expect_eq(__FILE__, __LINE__, __FUNCTION__, #x, #y, (x), (y))
-#define EXPECT(x) expect_eq(__FILE__, __LINE__, __FUNCTION__, #x, "true", (bool)(x), true);
+#define EXPECT_EQ(x, y) expect_eq(__FILE__, __LINE__, __func__, #x, #y, (x), (y))
+#define EXPECT(x) expect_eq(__FILE__, __LINE__, __func__, #x, "true", (bool)(x), true);
 
 void expect_eq(const char *file, int line, const char *func, const char *expr1, const char *expr2, int value1, int value2) {
   if (value1 == value2) return;
@@ -92,6 +96,7 @@ static void global_setup() {
   database = aprintf("%s/db", testdir);
   CHECK(mkdir(testdir, 0700) == 0);
   CHECK(mkdir(mountpoint, 0700) == 0);
+  CHECK(strlen(mountpoint) + 1000 < PATH_MAX);
 }
 
 static void global_teardown() {
@@ -182,13 +187,31 @@ static void test_rootdir() {
   teardown();
 }
 
-static struct Test {
+static void test_mkdir() {
+  char buf[PATH_MAX];
+
+  setup();
+
+  snprintf(buf, sizeof(buf), "%s/subdir", mountpoint);
+  EXPECT_EQ(mkdir(buf, 0770), 0);
+  struct stat st = {0};
+  EXPECT_EQ(stat(buf, &st), 0);
+  EXPECT_EQ(st.st_mode, 0750 | S_IFDIR);  // umask has been applied
+
+  // TODO: Add tests with invalid names; if possible, match all
+  // TODO: Maybe add test for mkdirat? What happens if parent dir is already deleted?
+
+  teardown();
+}
+
+static const struct Test {
   const char *name;
-  void (*const func)(void);
+  void (*func)(void);
 } tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
   TEST(rootdir),
+  TEST(mkdir),
 #undef TEST
   {NULL, NULL}};
 

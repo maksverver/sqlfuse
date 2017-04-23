@@ -33,10 +33,43 @@ struct sqlfs *sqlfs_create(
 // Destroys the filesystem state. Afterwards, the state should not be used.
 void sqlfs_destroy(struct sqlfs *sqlfs);
 
+// Retrieves metadata for the given inode number.
+//
 // Returns:
 //  0 on success
 //  ENOENT if the file is not found
 //  EIO if a database operation failed
 int sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat);
+
+// Retrieves metadata for a file identified by its name in a directory.
+//
+// Returns:
+//  0 on success
+//  EINVAL if the file name is invalid
+//  ENOENT if the file is not found
+//  EOI if the database operation failed
+int sqlfs_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
+    struct stat *stat);
+
+// Creates a subdirectory. On success, the metadata of the newly-created
+// directory is returned in *stat. Mode will be masked by the session's umask.
+//
+// Returns:
+//  0 on success
+//  TODO -- describe other error conditions!
+int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mode,
+    struct stat *stat);
+
+// Removes subdirectory.
+//
+// Returns:
+//  0 on success
+//  EINVAL if the name is invalid ("." or empty)
+//  ENOENT if the directory to be removed is not found
+//  ENOTDIR if the named entry does not refer to a directory
+//  EBUSY if the named entry refers to the root directory
+//  ENOTEMPTY if the named directory is not empty
+//  EIO if a database operation fails
+int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name);
 
 #endif
