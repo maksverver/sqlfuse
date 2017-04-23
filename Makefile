@@ -1,4 +1,4 @@
-CFLAGS=-Wall -Wextra -std=c99 -D_BSD_SOURCE -D_POSIX_C_SOURCE=199309 -g -O2 `pkg-config --cflags fuse sqlcipher` -DSQLITE_HAS_CODEC -DFUSE_USE_VERSION=26
+CFLAGS=-Wall -Wextra -std=c99 -D_BSD_SOURCE -D_POSIX_C_SOURCE=199506 -g -O2 `pkg-config --cflags fuse sqlcipher` -DSQLITE_HAS_CODEC -DFUSE_USE_VERSION=26
 LDLIBS=`pkg-config --libs fuse sqlcipher`
 
 # Some platforms may need this to run tests.

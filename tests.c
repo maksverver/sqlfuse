@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "fuse.h"
@@ -73,6 +74,14 @@ static char *aprintf(const char *format, ...) {
   return buf;
 }
 
+static bool timespec_eq(const struct timespec *a, const struct timespec *b) {
+  return a->tv_sec == b->tv_sec && a->tv_nsec == b->tv_nsec;
+}
+
+static bool timespec_le(const struct timespec *a, const struct timespec *b) {
+  return a->tv_sec < b->tv_sec || (a->tv_sec == b->tv_sec && a->tv_nsec <= b->tv_nsec);
+}
+
 static void global_setup() {
   const char *tempdir = getenv("TMPDIR");
   if (tempdir == NULL || *tempdir == '\0') {
@@ -110,20 +119,22 @@ static void setup() {
   fuse_args.allocated = 0;
   fuse_chan = fuse_mount(mountpoint, &fuse_args);
   CHECK(fuse_chan);
-  fuse_session = fuse_lowlevel_new(&fuse_args, &sqlfuse_ops, sizeof(sqlfuse_ops), NULL /* userdata */);
+  fuse_session = fuse_lowlevel_new(&fuse_args, &sqlfuse_ops, sizeof(sqlfuse_ops), sqlfs /* userdata */);
   CHECK(fuse_session);
   fuse_session_add_chan(fuse_session, fuse_chan);
+  fuse_set_signal_handlers(fuse_session);
 
   CHECK(pthread_create(&fuse_thread, NULL /* attr */, fuse_thread_func, fuse_session /* arg */) == 0);
 }
 
 static void teardown() {
-  fuse_session_exit(fuse_session);
+  pthread_kill(fuse_thread, SIGHUP);
 
   void *retval = NULL;
   CHECK(pthread_join(fuse_thread, &retval) == 0);
   EXPECT_EQ((int)(ssize_t)retval, 0);
 
+  fuse_remove_signal_handlers(fuse_session);
   fuse_session_remove_chan(fuse_chan);
   fuse_session_destroy(fuse_session);
   fuse_unmount(mountpoint, fuse_chan);
@@ -143,15 +154,62 @@ static void test_basic() {
   teardown();
 }
 
-static void run_tests() {
-  test_basic();
+// This test may fail if the realtime clock rewinds during the test!
+static void test_rootdir() {
+  struct timespec time_before_setup;
+  CHECK(clock_gettime(CLOCK_REALTIME, &time_before_setup) == 0);
+
+  setup();
+
+  struct timespec time_after_setup;
+  CHECK(clock_gettime(CLOCK_REALTIME, &time_after_setup) == 0);
+
+  struct stat st = {0};
+  stat(mountpoint, &st);
+  EXPECT_EQ(stat(mountpoint, &st), 0);
+  EXPECT_EQ(st.st_ino, 1);
+  EXPECT_EQ(st.st_mode, 0755 | S_IFDIR);
+  EXPECT_EQ(st.st_nlink, 2);
+  EXPECT_EQ(st.st_uid, geteuid());
+  EXPECT_EQ(st.st_gid, getegid());
+  EXPECT_EQ(st.st_size, 0);
+  EXPECT_EQ(st.st_blksize, 4096);
+  EXPECT_EQ(st.st_blocks, 0);
+  EXPECT(timespec_eq(&st.st_atim, &st.st_mtim));
+  EXPECT(timespec_eq(&st.st_ctim, &st.st_mtim));
+  EXPECT(timespec_le(&time_before_setup, &st.st_mtim));
+  EXPECT(timespec_le(&st.st_mtim, &time_after_setup));
+  teardown();
+}
+
+static struct Test {
+  const char *name;
+  void (*const func)(void);
+} tests[] = {
+#define TEST(x) {#x, &test_##x}
+  TEST(basic),
+  TEST(rootdir),
+#undef TEST
+  {NULL, NULL}};
+
+static bool run_tests() {
+  int failed_tests = 0;
+  failures = 0;
+  for (const struct Test *test = tests; test->func != NULL; ++test) {
+    int failures_before = failures;
+    test->func();
+    bool failed = failures != failures_before;
+    failed_tests += failed;
+    fprintf(stderr, "Test %s %s.\n", test->name, failed ? "failed" : "passed");
+  }
+  fprintf(stderr, "%d test failures. %d tests failed.\n", failures, failed_tests);
+  return failed_tests == 0;
 }
 
 int main(int argc, char *argv[]) {
   (void)argc, (void)argv;  // Unused.
   global_setup();
-  run_tests();
+  bool all_pass = run_tests();
   global_teardown();
-  fprintf(stderr, "%d test failures.\n", failures);
-  return failures == 0 ? 0 : 1;
+  return all_pass ? 0 : 1;
 }

@@ -7,6 +7,7 @@ Next:
 
 Things to test:
   - open read-only file
+  - re-open existing file, verify contents are still there.
   - sqlfs tests with encryption (no setup/teardown)
 
 TBD:
