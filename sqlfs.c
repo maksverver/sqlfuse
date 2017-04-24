@@ -38,6 +38,7 @@ enum statements {
   STMT_ROLLBACK_TRANSACTION,
   STMT_STAT,
   STMT_STAT_ENTRY,
+  STMT_LOOKUP,
   STMT_INC_NLINK,
   STMT_INSERT_METADATA,
   STMT_INSERT_DIRENTRIES,
@@ -46,6 +47,12 @@ enum statements {
 // SQL strings for prepared statements. This could just be an array of strings,
 // but including the `id` allows us to verify that array indices correspond one-
 // to-one with the enumerators above, as a sanity-check.
+//
+// For each stament of the form STMT_XXX, we also define the query parameter
+// indices (for use with sqlite3_bind()) as PARAM_XXX_YYY, and the projection
+// column indices (for use with sqlite3_column()) as COL_XXX_ZZZ. Note that
+// query parameters are indexed starting from 1, while projection columns are
+// indexed from 0 instead!
 static const struct Statement {
   int id;
   const char *sql;
@@ -76,6 +83,13 @@ static const struct Statement {
 #define PARAM_STAT_ENTRY_DIR_INO    1
 #define PARAM_STAT_ENTRY_ENTRY_NAME 2
     SELECT_METADATA " INNER JOIN direntries ON ino = entry_ino WHERE dir_ino = ? AND entry_name = ?" },
+
+  { STMT_LOOKUP,
+#define PARAM_LOOKUP_DIR_INO    1
+#define PARAM_LOOKUP_ENTRY_NAME 2
+#define COL_LOOKUP_ENTRY_INO    0
+#define COL_LOOKUP_ENTRY_TYPE   1
+    "SELECT entry_ino, entry_type FROM direntries WHERE dir_ino = ? AND entry_name = ?" },
 
   { STMT_INC_NLINK,
 #define PARAM_INC_NLINK_INO 1
@@ -335,6 +349,36 @@ finish:
   return err;
 }
 
+// Retrieves an entry from the `direntry` table.
+//
+// Returns:
+//  0 on success
+//  ENOENT if the entry is not found (including if dir_ino didn't exist!)
+//  EIO on SQLite error
+static int sql_lookup(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_name,
+    ino_t *child_ino, mode_t *child_mode) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_LOOKUP];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_LOOKUP_DIR_INO, dir_ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_text(stmt, PARAM_LOOKUP_ENTRY_NAME, entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  int err = -1;
+  if (status == SQLITE_ROW) {
+    *child_ino = sqlite3_column_int64(stmt, COL_LOOKUP_ENTRY_INO);
+    *child_mode = sqlite3_column_int64(stmt, COL_LOOKUP_ENTRY_TYPE) << 12;
+    err = 0;
+  } else if (status == SQLITE_DONE) {
+    err = ENOENT;
+  } else {
+    LOG("[%s:%d] %s(dir_ino=%lld, name=[%s]) status=%d\n",
+        __FILE__, __LINE__, __func__, (long long)dir_ino, entry_name, status);
+    err = EIO;
+  }
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(err >= 0);
+  return err;
+}
+
 // Insert an entry into the direntries table. Only the file type bits of mode are stored!
 // Entry name must not be "." or "..", but it may be the empty string, which corresponds
 // with "..".
@@ -457,28 +501,25 @@ int sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
 //  EIO on sqlite error
 static int lookup(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
     ino_t *child_ino, mode_t *child_mode) {
-  const char *name_to_lookup = NULL;
   switch (name_kind(name)) {
     case NAME_DOT:
-      // TODO: need a test for this.
-      // TODO: what if dir_ino does not exist or is not a directory?
+      // This assumes we already know dir_ino exists. Seems reasonable, but is
+      // it guaranteed? (TODO: check the callers of this function!)
       *child_ino = dir_ino;
       *child_mode = S_IFDIR;
       return 0;
 
     case NAME_DOTDOT:
-      name_to_lookup = "";
+      return sql_lookup(sqlfs, dir_ino, "", child_ino, child_mode);
       break;
 
     case NAME_REGULAR:
-      name_to_lookup = name;
+      return sql_lookup(sqlfs, dir_ino, name, child_ino, child_mode);
       break;
 
     default:
       return EINVAL;
   }
-  // TODO: implement!
-  return ENOENT;
 }
 
 int sqlfs_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
@@ -555,7 +596,7 @@ int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name) {
   mode_t child_mode = 0;
   int err = lookup(sqlfs, dir_ino, name, &child_ino, &child_mode);
   if (err != 0) {
-    return err;  // ENOENT or EIO
+    return err;  // ENOENT, EINVAL or EIO
   }
   if (!S_ISDIR(child_mode)) {
     return ENOTDIR;

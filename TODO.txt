@@ -3,6 +3,7 @@ Next:
      - see TODOs is sqlfs.c
      - then add support for rmdir too
      - then add some more test coverage!
+  - lookup accounting!
 
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
   - sqlfs.c: Maybe: separate functions to create/open existing database?
