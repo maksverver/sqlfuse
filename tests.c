@@ -198,6 +198,9 @@ static void test_mkdir() {
   EXPECT_EQ(stat(buf, &st), 0);
   EXPECT_EQ(st.st_mode, 0750 | S_IFDIR);  // umask has been applied
 
+  EXPECT_EQ(mkdir(buf, 0755), -1);
+  EXPECT_EQ(errno, EEXIST);
+
   // TODO: Add tests with invalid names; if possible, match all
   // TODO: Maybe add test for mkdirat? What happens if parent dir is already deleted?
 
