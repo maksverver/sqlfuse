@@ -33,7 +33,8 @@
 #define PATH_MAX 4096
 #endif
 
-static int failures = 0;
+static bool enable_fuse_debug_logging;
+static int failures;
 static char *testdir;
 static char *mountpoint;
 static char *database;
@@ -119,9 +120,13 @@ static void setup() {
   CHECK(sqlfs);
 
   char *argv[2] = {"test", NULL};
+  memset(&fuse_args, 0, sizeof(fuse_args));
   fuse_args.argc = 1;
   fuse_args.argv = argv;
-  fuse_args.allocated = 0;
+  fuse_opt_parse(&fuse_args, NULL, NULL, NULL);
+  if (enable_fuse_debug_logging) {
+    fuse_opt_add_arg(&fuse_args, "-d");
+  }
   fuse_chan = fuse_mount(mountpoint, &fuse_args);
   CHECK(fuse_chan);
   fuse_session = fuse_lowlevel_new(&fuse_args, &sqlfuse_ops, sizeof(sqlfuse_ops), sqlfs /* userdata */);
@@ -201,7 +206,6 @@ static void test_mkdir() {
   EXPECT_EQ(mkdir(buf, 0755), -1);
   EXPECT_EQ(errno, EEXIST);
 
-  // TODO: Add tests with invalid names; if possible, match all
   // TODO: Maybe add test for mkdirat? What happens if parent dir is already deleted?
 
   teardown();
@@ -218,24 +222,71 @@ static const struct Test {
 #undef TEST
   {NULL, NULL}};
 
-static bool run_tests() {
+static const struct Test *find_test(const char *name) {
+  for (const struct Test *test = tests; test->func != NULL; ++test) {
+    if (strcmp(test->name, name) == 0) {
+      return test;
+    }
+  }
+  return NULL;
+}
+
+static bool run_test(const struct Test *test) {
+  int failures_before = failures;
+  test->func();
+  bool passed = failures == failures_before;
+  fprintf(stderr, "Test %s %s.\n", test->name, passed ? "passed" : "failed");
+  return passed;
+}
+
+static bool run_tests(char **test_names, int num_tests) {
   int failed_tests = 0;
   failures = 0;
-  for (const struct Test *test = tests; test->func != NULL; ++test) {
-    int failures_before = failures;
-    test->func();
-    bool failed = failures != failures_before;
-    failed_tests += failed;
-    fprintf(stderr, "Test %s %s.\n", test->name, failed ? "failed" : "passed");
+  if (num_tests == 0) {
+    // Run all tests.
+    for (const struct Test *test = tests; test->func != NULL; ++test) {
+      failed_tests += !run_test(test);
+    }
+  } else {
+    for (int i = 0; i < num_tests; ++i) {
+      const struct Test *test = find_test(test_names[i]);
+      if (test == NULL) {
+        fprintf(stderr, "Test [%s] not found!\n", test_names[i]);
+        ++failed_tests;
+      } else {
+        failed_tests += !run_test(test);
+      }
+    }
   }
   fprintf(stderr, "%d test failures. %d tests failed.\n", failures, failed_tests);
   return failed_tests == 0;
 }
 
 int main(int argc, char *argv[]) {
-  (void)argc, (void)argv;  // Unused.
+  // Parse command line options.
+  for (int opt; (opt = getopt(argc, argv, "dl")) != -1; ) {
+    switch (opt) {
+      case 'd':
+        enable_fuse_debug_logging = true;
+        break;
+      case 'l':
+        logging_enabled = true;
+        break;
+      default:
+        fputs(
+          "Usage: tests [-l] [-d] [<tests...>]\n\n"
+          "Options:\n"
+          "\t-l enable printing of log statements\n"
+          "\t-d enable printing libfuse debug output\n",
+          stdout);
+        exit(1);
+    }
+  }
+
+  // Run tests.
+  CHECK(optind <= argc);
   global_setup();
-  bool all_pass = run_tests();
+  bool all_pass = run_tests(argv + optind, argc - optind);
   global_teardown();
   return all_pass ? 0 : 1;
 }
