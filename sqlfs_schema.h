@@ -2,7 +2,13 @@
 // This is intended to be included from sqlfs.c.
 
 SQL_STATEMENT(
-  // TODO: document this in more detail
+  // Metadata table stores inode attributes. This is what's returned by stat().
+  //
+  // Since the ino column is not an AUTOINCREMENT column, ino numbers may be
+  // reused over the lifetime of the database.
+  //
+  // Mode indicates the file type and permissions. The only supported file types
+  // are regular files (S_IFREG) and directories (S_IFDIR).
   CREATE TABLE metadata(
     ino INTEGER PRIMARY KEY NOT NULL,  // must be positive. 1 means root.
     mode INTEGER NOT NULL,
@@ -21,10 +27,16 @@ SQL_STATEMENT(
 )
 
 SQL_STATEMENT(
-  // TODO: document this in more detail
+  // Stores the data contents of file entries.
+  //
+  // The size and blksize columns determine how data is distributed over rows.
+  // The first `floor(size / blksize)` rows contain blksize bytes each. If
+  // `size` is not an integer multiple of `blksize, then there is an additional
+  // block containing the remaining `size % blksize` bytes. This means that no
+  // rows are stored for empty files!
   CREATE TABLE filedata(
     ino INTEGER NOT NULL,  // references metadata(ino)
-    idx INTEGER NOT NULL,
+    idx INTEGER NOT NULL,  // 0-based
     data BLOB NOT NULL,
     PRIMARY KEY (ino, idx)
   )
@@ -40,7 +52,7 @@ SQL_STATEMENT(
   // Entry names may not be empty, "." or "..", or contain "/" or "\0".
   CREATE TABLE direntries(
     dir_ino INTEGER NOT NULL,      // references metadata(ino)
-    entry_name TEXT NOT NULL,  // see above
+    entry_name TEXT NOT NULL,      // see above
     entry_ino INTEGER NOT NULL,    // references metadata(ino)
     entry_type INTEGER NOT NULL,   // file type bits (mode >> 12)
     PRIMARY KEY (dir_ino, entry_name)
