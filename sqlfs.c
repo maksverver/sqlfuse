@@ -269,9 +269,15 @@ static int sql_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_
   return finish_stat_query(stmt, stat);
 }
 
-// TODO: document this
-// TODO: should size/blocksize column be set (for files, but not directories?)
-// Returns 0 on success, EIO on SQLite error.
+// Allocates an inode number for a new file/directory with the given mode and
+// link count. On success, *stat contains the generated attributes. In
+// particular, the generated inode number is returned in stat->st_ino.
+//
+// Inode numbers may be re-used over the lifetime of the filesystem! (For
+// example, if file A with inode 42 is deleted, it is possibly that file B is
+// later created with the same inode number 42.)
+//
+// Returns 0 on success, or EIO if the database operation failed.
 static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, struct stat *stat) {
   memset(stat, 0, sizeof(*stat));
   stat->st_mode = mode;

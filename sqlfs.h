@@ -56,7 +56,10 @@ int sqlfs_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
 //
 // Returns:
 //  0 on success
-//  TODO -- describe other error conditions!
+//  EINVAL if the given name is invalid
+//  ENOENT if the parent directory does not exist
+//  EEXIST if a file/directory with the given name already exists
+//  EIO if a database operation failed
 int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mode,
     struct stat *stat);
 
