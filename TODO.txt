@@ -1,11 +1,10 @@
 Next:
-  - Clean up the mess I make while implementing mkdir()!
-     - see TODOs is sqlfs.c
-     - then add support for rmdir too
-     - then add some more test coverage!
-  - lookup accounting!
-
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
+  - Lookup accounting!
+  - Add a note somewhere about the logic of returning errors vs CHECK():
+      - for read-only operations, we will usually CHECK that they succeed.
+      - for write operations, we will always pass through the error, because they may fail due to
+        disk being full / file being opened in read-only mode / etc.
   - sqlfs.c: Maybe: separate functions to create/open existing database?
   - If creating the database fails, should we delete the partially-created
     database file (which will be empty)
@@ -37,3 +36,5 @@ General TODO:
   - fully document the schema definition (wait until the implementation is
     further along; no point documenting it when it's likely to change)
   - fsck tool that checks internal consistency?
+  - dump tool to dump contents of database?
+  - another tool to rekey the database?

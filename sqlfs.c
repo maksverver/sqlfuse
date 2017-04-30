@@ -39,9 +39,13 @@ enum statements {
   STMT_STAT,
   STMT_STAT_ENTRY,
   STMT_LOOKUP,
-  STMT_INC_NLINK,
+  STMT_UPDATE_NLINK,
   STMT_INSERT_METADATA,
+  STMT_DELETE_METADATA,
   STMT_INSERT_DIRENTRIES,
+  STMT_COUNT_DIRENTRIES,
+  STMT_DELETE_DIRENTRIES,
+  STMT_DELETE_DIRENTRIES_BY_NAME,
   NUM_STATEMENTS };
 
 // SQL strings for prepared statements. This could just be an array of strings,
@@ -91,9 +95,10 @@ static const struct Statement {
 #define COL_LOOKUP_ENTRY_TYPE   1
     "SELECT entry_ino, entry_type FROM direntries WHERE dir_ino = ? AND entry_name = ?" },
 
-  { STMT_INC_NLINK,
-#define PARAM_INC_NLINK_INO 1
-    "UPDATE metadata SET nlink = nlink + 1 WHERE ino = ?" },
+  { STMT_UPDATE_NLINK,
+#define PARAM_UPDATE_NLINK_ADD_LINKS 1
+#define PARAM_UPDATE_NLINK_INO 2
+    "UPDATE metadata SET nlink = nlink + ? WHERE ino = ?" },
 
   { STMT_INSERT_METADATA,
 #define PARAM_INSERT_METADATA_MODE  1
@@ -103,12 +108,30 @@ static const struct Statement {
 #define PARAM_INSERT_METADATA_MTIME 5
     "INSERT INTO metadata(mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?)" },
 
+  { STMT_DELETE_METADATA,
+#define PARAM_DELETE_METADATA_INO 1
+    "DELETE FROM metadata WHERE ino = ?" },
+
   { STMT_INSERT_DIRENTRIES,
 #define PARAM_INSERT_DIRENTRIES_DIR_INO    1
 #define PARAM_INSERT_DIRENTRIES_ENTRY_NAME 2
 #define PARAM_INSERT_DIRENTRIES_ENTRY_INO  3
 #define PARAM_INSERT_DIRENTRIES_ENTRY_TYPE 4
     "INSERT INTO direntries(dir_ino, entry_name, entry_ino, entry_type) VALUES (?, ?, ?, ?)" },
+
+  { STMT_COUNT_DIRENTRIES,
+#define PARAM_COUNT_DIRENTRIES_DIR_INO 1
+#define COL_COUNT_DIRENTRIES_COUNT     0
+    "SELECT count(entry_name) AS count FROM direntries WHERE dir_ino = ?" },
+
+  { STMT_DELETE_DIRENTRIES,
+#define PARAM_DELETE_DIRENTRIES_DIR_INO 1
+    "DELETE FROM direntries WHERE dir_ino = ?" },
+
+  { STMT_DELETE_DIRENTRIES_BY_NAME,
+#define PARAM_DELETE_DIRENTRIES_BY_NAME_DIR_INO    1
+#define PARAM_DELETE_DIRENTRIES_BY_NAME_ENTRY_NAME 2
+    "DELETE FROM direntries WHERE dir_ino = ? AND entry_name = ?" },
 
   {-1, NULL}
 };
@@ -319,15 +342,31 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
   return stat->st_ino > 0 ? 0 : EIO;
 }
 
-// Increments the hardlink count for the given inode number.
+// Deletes the metadata for a file/directory. Caller must make sure the contents
+// of the file/directory are deleted separately!
+//
+// Returns 0 on success, or EIO if the database operation fails.
+static int sql_delete_metadata(struct sqlfs *sqlfs, ino_t ino) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_DELETE_METADATA];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_METADATA_INO, ino) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return status == SQLITE_DONE ? 0 : EIO;
+}
+
+// Updates the hardlink count for the given inode number, by adding add_links
+// to the current link count. This function doesn't check that the new value is
+// in range!
 //
 // Returns:
 //  0 on success,
 //  ENOENT if the ino does not exist
 //  EIO for other SQLite errors
-static int sql_inc_nlink(struct sqlfs *sqlfs, ino_t ino) {
-  sqlite3_stmt *stmt = sqlfs->stmt[STMT_INC_NLINK];
-  CHECK(sqlite3_bind_int64(stmt, PARAM_INC_NLINK_INO, ino) == SQLITE_OK);
+static int sql_update_nlink(struct sqlfs *sqlfs, ino_t ino, int64_t add_links) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_UPDATE_NLINK];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_NLINK_ADD_LINKS, add_links) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_NLINK_INO, ino) == SQLITE_OK);
   int err = -1;
   int status = sqlite3_step(stmt);
   if (status != SQLITE_DONE) {
@@ -347,6 +386,18 @@ finish:
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
   CHECK(err >= 0);
   return err;
+}
+
+// Increments the hardlink count for the given inode number.
+// See sql_update_nlink() for return values.
+static int sql_inc_nlink(struct sqlfs *sqlfs, ino_t ino) {
+  return sql_update_nlink(sqlfs, ino, +1);
+}
+
+// Decrements the hardlink count for the given inode number.
+// See sql_update_nlink() for return values.
+static int sql_dec_nlink(struct sqlfs *sqlfs, ino_t ino) {
+  return sql_update_nlink(sqlfs, ino, -1);
 }
 
 // Retrieves an entry from the `direntry` table.
@@ -406,6 +457,55 @@ static int sql_insert_direntries(struct sqlfs *sqlfs, ino_t dir_ino, const char 
         __FILE__, __LINE__, __func__, (long long)dir_ino, entry_name, (long long)entry_ino, entry_mode, status);
     return EIO;
   }
+}
+
+// Returns a count of the number of directory entries for the directory with
+// inode number `dir_ino`, including the empty entry (corresponding to ".").
+// That means the count is 1 for an empty directory, or 0 for non-existent
+// directories (including files, which aren't directories).
+static int64_t sql_count_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_COUNT_DIRENTRIES];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_COUNT_DIRENTRIES_DIR_INO, dir_ino) == SQLITE_OK);
+  CHECK(sqlite3_step(stmt) == SQLITE_ROW);
+  const int64_t result = sqlite3_column_int64(stmt, COL_COUNT_DIRENTRIES_COUNT);
+  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return result;
+}
+
+// Deletes the directory entry with the given name.
+//
+// This doesn't delete files/directories recursively. The caller must make sure
+// that the file/directory being deleted is still linked elsewhere, or delete it
+// separately.
+//
+// Returns 0 on success, or EIO if the database operation fails.
+static int sql_delete_direntry(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_name) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_DELETE_DIRENTRIES_BY_NAME];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_DIRENTRIES_BY_NAME_DIR_INO, dir_ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_text(stmt, PARAM_DELETE_DIRENTRIES_BY_NAME_ENTRY_NAME, entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return status == SQLITE_DONE ? 0 : EIO;
+}
+
+// Deletes all entries in the given directory. This includes the empty entry
+// (corresponding to ".") so afterwards, the directory is in an invalid state,
+// and its metadata should be removed separately.
+//
+// This doesn't delete files/directories recursively. The caller must make sure
+// that the directory is empty before deleting its entries.
+//
+// Returns 0 on success, or EIO if the database operation fails.
+static int sql_delete_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_DELETE_DIRENTRIES];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_DIRENTRIES_DIR_INO, dir_ino) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return status == SQLITE_DONE ? 0 : EIO;
 }
 
 struct sqlfs *sqlfs_create(
@@ -587,32 +687,64 @@ finish:
   return err;
 }
 
-// TODO TODO TODO
-// This is an unfinished mess!
-// TODO TODO TODO
 int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name) {
-  // TODO: should return ENOTDIR instead of ENOENT if dir_ino refers to a file.
+  // Minor bug: this function should technicaly return ENOTDIR instead of
+  // ENOENT if dir_ino does not refer to a directory. (Perhaps this isn't an
+  // issue in practice, if FUSE verifies dir_ino refers to a directory before
+  // calling this function.)
+
+  sql_begin_transaction(sqlfs);
+  int err = -1;
+
   ino_t child_ino = 0;
   mode_t child_mode = 0;
-  int err = lookup(sqlfs, dir_ino, name, &child_ino, &child_mode);
+  err = lookup(sqlfs, dir_ino, name, &child_ino, &child_mode);
   if (err != 0) {
-    return err;  // ENOENT, EINVAL or EIO
+    // err is ENOENT, EINVAL or EIO
+    goto finish;
   }
   if (!S_ISDIR(child_mode)) {
-    return ENOTDIR;
+    err = ENOTDIR;
+    goto finish;
   }
   if (child_ino == ROOT_INO) {
-    return EBUSY;
+    err = EBUSY;
+    goto finish;
   }
   if (child_ino == dir_ino) {
-    return EINVAL;
+    err = EINVAL;
+    goto finish;
   }
-  // TODO: in a transaction:
-  //  - check if directory is empty
-  //  - if not, return ENOTEMPTY
-  //  - if so, delete remaining direntry and metadata, and return 0
-  //  - if any query fails, return EIO
-  //  - update hardlink count
-  //  - add tests for hardlink counting!
-  return 0;
+  const int64_t entry_count = sql_count_direntries(sqlfs, child_ino);
+  if (entry_count > 1) {
+    err = ENOTEMPTY;
+    goto finish;
+  }
+  CHECK(entry_count == 1);
+
+  err = sql_delete_direntries(sqlfs, child_ino);
+  if (err != 0) {
+    // err is EIO
+    goto finish;
+  }
+  err = sql_delete_metadata(sqlfs, child_ino);
+  if (err != 0) {
+    // err is EIO
+    goto finish;
+  }
+  err = sql_delete_direntry(sqlfs, dir_ino, name);
+  if (err != 0) {
+    // err is EIO
+    goto finish;
+  }
+  err = sql_dec_nlink(sqlfs, dir_ino);
+
+finish:
+  if (err == 0) {
+    sql_commit_transaction(sqlfs);
+  } else {
+    sql_rollback_transaction(sqlfs);
+  }
+  CHECK(err >= 0);
+  return err;
 }

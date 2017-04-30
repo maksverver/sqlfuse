@@ -212,21 +212,93 @@ static void test_rootdir() {
   teardown();
 }
 
+static nlink_t nlinks(const char *path) {
+  struct stat st = {0};
+  if (stat(path, &st) != 0) {
+    fprintf(stderr, "stat([%s]) failed.\n", path);
+    ++failures;
+    return -1;
+  }
+  return st.st_nlink;
+}
+
 static void test_mkdir() {
   char buf[PATH_MAX];
 
   setup();
+
+  EXPECT_EQ(nlinks(mountpoint), 2);
 
   snprintf(buf, sizeof(buf), "%s/subdir", mountpoint);
   EXPECT_EQ(mkdir(buf, 0770), 0);
   struct stat st = {0};
   EXPECT_EQ(stat(buf, &st), 0);
   EXPECT_EQ(st.st_mode, 0750 | S_IFDIR);  // umask has been applied
+  EXPECT_EQ(st.st_nlink, 2);
 
+  // Root directory link count has increased.
+  EXPECT_EQ(nlinks(mountpoint), 3);
+
+  // Cannot recreate directory that already exists.
   EXPECT_EQ(mkdir(buf, 0755), -1);
   EXPECT_EQ(errno, EEXIST);
 
+  // Cannot create child directory in non-existent parent directory
+  snprintf(buf, sizeof(buf), "%s/nonexistent/subdir", mountpoint);
+  EXPECT_EQ(mkdir(buf, 0770), -1);
+  EXPECT_EQ(errno, ENOENT);
+
   // TODO: Maybe add test for mkdirat? What happens if parent dir is already deleted?
+
+  teardown();
+}
+
+static void test_rmdir() {
+  struct stat st;
+  char dir_foo[PATH_MAX];
+  char dir_foo_bar[PATH_MAX];
+  char dir_foo_baz[PATH_MAX];
+
+  snprintf(dir_foo, sizeof(dir_foo), "%s/foo", mountpoint);
+  snprintf(dir_foo_bar, sizeof(dir_foo_bar), "%s/foo/bar", mountpoint);
+  snprintf(dir_foo_baz, sizeof(dir_foo_baz), "%s/foo/baz", mountpoint);
+
+  setup();
+
+  EXPECT_EQ(rmdir(dir_foo), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  EXPECT_EQ(rmdir(dir_foo_bar), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  EXPECT_EQ(mkdir(dir_foo, 0700), 0);
+  EXPECT_EQ(mkdir(dir_foo_bar, 0700), 0);
+  EXPECT_EQ(mkdir(dir_foo_baz, 0700), 0);
+
+  EXPECT_EQ(nlinks(mountpoint),  3); // ".", "..", "foo"
+  EXPECT_EQ(nlinks(dir_foo),     4); // "../foo", ".", "bar/..", "baz/.."
+  EXPECT_EQ(nlinks(dir_foo_bar), 2); // ".", "../bar"
+  EXPECT_EQ(nlinks(dir_foo_bar), 2); // ".", "../baz"
+
+  EXPECT_EQ(rmdir(dir_foo), -1);
+  EXPECT_EQ(errno, ENOTEMPTY);
+
+  EXPECT_EQ(rmdir(dir_foo_bar), 0);
+  EXPECT_EQ(stat(dir_foo_bar, &st), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  EXPECT_EQ(nlinks(dir_foo), 3);
+  EXPECT_EQ(rmdir(dir_foo), -1);
+  EXPECT_EQ(errno, ENOTEMPTY);
+
+  EXPECT_EQ(rmdir(dir_foo_baz), 0);
+  EXPECT_EQ(stat(dir_foo_baz, &st), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  EXPECT_EQ(nlinks(dir_foo), 2);
+  EXPECT_EQ(rmdir(dir_foo), 0);
+
+  EXPECT_EQ(nlinks(mountpoint), 2);
 
   teardown();
 }
@@ -239,6 +311,7 @@ static const struct Test {
   TEST(basic),
   TEST(rootdir),
   TEST(mkdir),
+  TEST(rmdir),
 #undef TEST
   {NULL, NULL}};
 
