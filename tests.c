@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -34,6 +35,7 @@
 #endif
 
 static bool enable_fuse_debug_logging;
+static char *sqlite_path_for_dump;
 static int failures;
 static char *testdir;
 static char *mountpoint;
@@ -155,6 +157,24 @@ static void teardown() {
 
   sqlfs_destroy(sqlfs);
   sqlfs = NULL;
+
+  if (sqlite_path_for_dump) {
+    pid_t pid = fork();
+    if (pid < 0) {
+      perror("fork() failed");
+    } else if (pid == 0) {
+      close(0);  // close stdin
+      dup2(2, 1);  // redirect stdout to stderr
+      execlp(sqlite_path_for_dump, sqlite_path_for_dump, database, ".dump", (char*) NULL);
+      perror("exec() failed");
+      exit(1);
+    } else {  // pid > 0
+      int status = 0;
+      waitpid(pid, &status, 0);
+      EXPECT_EQ(status, 0);
+    }
+  }
+
   CHECK(unlink(database) == 0);
 }
 
@@ -264,7 +284,7 @@ static bool run_tests(char **test_names, int num_tests) {
 
 int main(int argc, char *argv[]) {
   // Parse command line options.
-  for (int opt; (opt = getopt(argc, argv, "dl")) != -1; ) {
+  for (int opt; (opt = getopt(argc, argv, "dls:")) != -1; ) {
     switch (opt) {
       case 'd':
         enable_fuse_debug_logging = true;
@@ -272,12 +292,17 @@ int main(int argc, char *argv[]) {
       case 'l':
         logging_enabled = true;
         break;
+      case 's':
+        sqlite_path_for_dump = optarg;
+        break;
       default:
         fputs(
-          "Usage: tests [-l] [-d] [<tests...>]\n\n"
+          "Usage: tests [-l] [-d] [-s sqlite3] [<tests...>]\n\n"
           "Options:\n"
-          "\t-l enable printing of log statements\n"
-          "\t-d enable printing libfuse debug output\n",
+          "\t-l         enable printing of log statements\n"
+          "\t-d         enable printing libfuse debug output\n"
+          "\t-s sqlite3 name of the sqlite3 binary (if specified, the contents\n"
+          "\t           of the database will be dumped after each test)\n",
           stdout);
         exit(1);
     }
