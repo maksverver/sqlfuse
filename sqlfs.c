@@ -1,3 +1,5 @@
+// Implements a filesystem in an SQLite3 database.
+//
 // Naming conventios used in this file:
 //
 //  - Function names starting with "sqlfs_" indicate exported functions with a
@@ -5,6 +7,26 @@
 //  - Function names starting with "sql_" indicate those functions mainly execute
 //    SQL statements. They will be declared static.
 //  - Other helper functions use no particular prefix. They will also be static.
+//
+// Conventions on error propagation:
+//
+// We use a mix of CHECK() failures (which abort execution immediately) and
+// propagating errors back to the client.
+//
+//  - CHECK() failures are used for conditions that shouldn't happen and most
+//    read-only query failures. The rationale is that we cannot reasonably
+//    recover from those, and if the database is not readable, we cannot provide
+//    any useful functionality, so we might as well crash immediately.
+//  - Error propagation is used for failure of database updates. The rationale
+//    is that it's possible to mount a read-only database, or for database
+//    writes to fail (e.g., because the disk is full). We shouldn't crash, but
+//    still support read-only functionality instead. Database write errors are
+//    returned as errno EIO, unless otherwise specified.
+//
+// All database updates are performed within an exclusive transaction. This
+// guarantees that if a CHECK() failure occurs halfway through an update, the
+// transaction will be rolled back and the database will be left in a consistent
+// state.
 
 #include "sqlfs.h"
 
