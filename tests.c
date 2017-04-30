@@ -94,7 +94,7 @@ static void global_setup() {
   if (tempdir == NULL || *tempdir == '\0') {
     tempdir = "/tmp";
   }
-  testdir = aprintf("%s/test-%d-%6d", tempdir, (int)getpid(), (int)(time(NULL)%1000000));
+  testdir = aprintf("%s/test-%d-%06d", tempdir, (int)getpid(), (int)(time(NULL)%1000000));
   mountpoint = aprintf("%s/mnt", testdir);
   database = aprintf("%s/db", testdir);
   CHECK(mkdir(testdir, 0700) == 0);
