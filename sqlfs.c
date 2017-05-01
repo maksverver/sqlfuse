@@ -312,7 +312,7 @@ static int finish_stat_query(sqlite3_stmt *stmt, struct stat *stat) {
     CHECK(sqlite3_step(stmt) == SQLITE_DONE);
     err = 0;
   } else {
-    LOG("[%s:%d] status=%d\n", __FILE__, __LINE__, status);
+    LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
     err = EIO;
   }
   CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
@@ -354,7 +354,7 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
 
   int status = sqlite3_step(stmt);
   if (status != SQLITE_DONE) {
-    LOG("[%s:%d] status=%d\n", __FILE__, __LINE__, status);
+    LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
   } else {
     stat->st_ino = sqlite3_last_insert_rowid(sqlfs->db);
     CHECK(stat->st_ino > 0);
@@ -392,7 +392,8 @@ static int sql_update_nlink(struct sqlfs *sqlfs, ino_t ino, int64_t add_links) {
   int err = -1;
   int status = sqlite3_step(stmt);
   if (status != SQLITE_DONE) {
-    LOG("[%s:%d] status=%d\n", __FILE__, __LINE__, status);
+    LOG("[%s:%d] %s(ino=%lld, add_links=%lld) status=%d\n", __FILE__, __LINE__,
+        __func__, (long long) ino, (long long) add_links, status);
     err = EIO;
     goto finish;
   }
