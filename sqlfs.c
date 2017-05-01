@@ -634,12 +634,11 @@ static int lookup(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
 
     case NAME_DOTDOT:
       return sql_lookup(sqlfs, dir_ino, "", child_ino, child_mode);
-      break;
 
     case NAME_REGULAR:
       return sql_lookup(sqlfs, dir_ino, name, child_ino, child_mode);
-      break;
 
+    case NAME_EMPTY:
     default:
       return EINVAL;
   }
@@ -657,6 +656,7 @@ int sqlfs_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
   case NAME_REGULAR:
     return sql_stat_entry(sqlfs, dir_ino, name, stat);
 
+  case NAME_EMPTY:
   default:
     return EINVAL;
   }
