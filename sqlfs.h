@@ -6,6 +6,7 @@
 #ifndef SQLFS_H_INCLUDED
 #define SQLFS_H_INCLUDED
 
+#include <stdbool.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -74,5 +75,57 @@ int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
 //  ENOTEMPTY if the named directory is not empty
 //  EIO if a database operation fails
 int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name);
+
+// The sqlfs_dir_open(), sqlfs_dir_next() and sqlfs_dir_close() functions are
+// used to read the contents of a directory. The first entry is always ".." and
+// refers to the directory's parent directory. The following entries are given
+// in lexicographical order. Note that the "." entry is not included at all!
+//
+// Within a single sqlfs instance, only one directory may be opened at a time,
+// and no other operations (including sqlfs_destroy()) may be performed until
+// it is closed. That means the user should typically keep a directory open
+// for a very short time only, and treat the open, next, and close calls as a
+// single operation.
+//
+// To enumerate the contents of large directories in smaller chunks, use the
+// `start_name` argument to sqlfs_dir_open() to resume.
+//
+// Example usage:
+//
+//   struct sqlfs *sqlfs = sqlfs_create(..);
+//   struct ino_t dir_ino = 1;
+//   struct sqlfs_dir *dir = sqlfs_dir_open(sqlfs, dir_ino, NULL);
+//
+//   const char *name;
+//   ino_t ino;
+//   mode_t mode;
+//   while (sqlfs_dir_next(dir, &name, &ino, &mode)) {
+//     printf("name=%s ino=%d mode=0%o\n", name, ino, mode);
+//   }
+//
+//   sqlfs_dir_close(dir);
+//
+
+// Opens a directory for reading. `ino` must refer to a directory. `start_name`
+// can be NULL (or equivalently, "" or "..") to start at the beginning, or the
+// name of the next entry. The value of `start_name` is typically the last name
+// returned by sqlfs_dir_next() before closing the directory. (It's possible
+// that sqlfs_dir_next() returns a different entry, if the named entry has been
+// deleted since.)
+void sqlfs_dir_open(struct sqlfs *sqlfs, ino_t ino, const char *start_name);
+
+// Reads the next directory entry, storing its name into *name, its inode
+// number into *ino, and (only!) the file-type bits of its mode into *mode,
+// and returns true.
+//
+// If there are no more entries, this function returns false instead, and the
+// contents of the output arguments is undefined.
+//
+// The buffer pointed to by *name is valid only until the next call to
+// sqlfs_dir_next() or sqlfs_dir_close().
+bool sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *mode);
+
+// Closes a directory opened previously by sqlfs_dir_open().
+void sqlfs_dir_close(struct sqlfs *sqlfs);
 
 #endif

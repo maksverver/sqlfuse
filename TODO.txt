@@ -1,11 +1,15 @@
 Next:
+  - Add tests for opendir()/readdir()/closedir()!
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
   - Lookup accounting!
+  - Delete unlinked files at startup. (Note: should also delete file/directory
+    contents!)
   - sqlfs.c: Maybe: separate functions to create/open existing database?
   - If creating the database fails, should we delete the partially-created
     database file (which will be empty)
   - Figure out which functions increase the 'lookup count' for an inode;
     document this somewhere.
+  - Figure out what happens if an open directory is deleted?
 
 Things to test:
   - open read-only file
@@ -26,6 +30,10 @@ Decisions to document somewhere:
     fixed value, that means the filesystem cannot be exported over NFS! An
     alternative solution would be to store the creation timestamp in the
     metadata table, and use that as the generation number.
+  - Directory reading: we use "next_name" instead of "last_name" as the
+    continuation token (and "SELECT ... WHERE name >= next_name", instead of
+    "WHERE name > last_name") to avoid having to copy strings in
+    sqlfuse_readdir() to remember the last entry name.
 
 General TODO:
   - create a README with some information and usage notes.

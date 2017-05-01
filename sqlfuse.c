@@ -19,6 +19,38 @@
 // Temporary! TODO: Remove this once the sqlfuse_* functions are implemented.
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
+// Describes an open directory handle.
+//
+// In the beginning (i.e. immediately after a call to sqlfuse_opendir()):
+//
+//  next_name == NULL && at_end == false.
+//
+// If sqlfuse_readdir() fills its buffer but there are more entries remaining,
+// it will set next_name to indicate where the next call should continue:
+//
+//  next_name != NULL && at_end == false.
+//
+// If on the other hand, the last entry in the directory has been placed in a
+// buffer, it will set:
+//
+//  next_name == NULL && at_end == true.
+//
+// If at_end == true(), sqlfuse_readdir() will return an empty buffer to
+// indicate to FUSE that the end of the directory has been reached.
+//
+// Note that the dir_handle structure is allocated by sqlfuse_opendir() and
+// freed by sqlfuse_closedir(). next_name is allocated by sqlfuse_readdir(),
+// and freed by sqlfuse_readdir() or sqlfuse_closedir().
+struct dir_handle {
+  char *next_name;
+  bool at_end;
+};
+
+// Maximum buffer size for reading directory entries. Should be large enough
+// so that any entry will fit. (We don't enforce a limit on file names, but
+// presumably the kernel does, and it will be much less than 256 KiB.)
+#define MAX_BUF_SIZE (256 * 1024) /* 256 KiB */
+
 #define TRACE(...) \
   do { \
     if (logging_enabled) { \
@@ -71,6 +103,13 @@ static void reply_entry(fuse_req_t req, const struct fuse_entry_param *entry) {
     LOG("WARNING: fuse_reply_entry() returned %d\n", res);
   } else {
     // TODO: accounting of lookup counts!
+  }
+}
+
+static void reply_buf(fuse_req_t req, const char *buf, size_t size) {
+  int res = fuse_reply_buf(req, buf, size);
+  if (res != 0) {
+    LOG("WARNING: fuse_reply_buf() returned %d\n", res);
   }
 }
 
@@ -172,19 +211,96 @@ static void sqlfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 
 static void sqlfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino));
-  reply_err(req, ENOSYS);
+  struct dir_handle *dir_handle = calloc(1, sizeof(struct dir_handle));
+  fi->fh = (uint64_t) dir_handle;
+  int res = fuse_reply_open(req, fi);
+  if (res != 0) {
+    LOG("WARNING: fuse_reply_open() returned %d\n", res);
+  }
 }
 
 static void sqlfuse_readdir(fuse_req_t req, fuse_ino_t ino,
     size_t size, off_t off, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
-  reply_err(req, ENOSYS);
+
+  struct dir_handle *dir_handle = (struct dir_handle *)fi->fh;
+  if (dir_handle->at_end) {
+    // At end: send empty buffer.
+    reply_buf(req, NULL, 0);
+    return;
+  }
+
+  if (size > MAX_BUF_SIZE) {
+    size = MAX_BUF_SIZE;
+  }
+  char *buf = malloc(size);
+  CHECK(buf);
+  size_t pos = 0;
+
+  bool at_beginning = dir_handle->next_name == NULL;
+
+  if (at_beginning) {
+    // First time we're called. Add a "." entry for the directory itself.
+    const struct stat st = {
+      .st_ino = ino,
+      .st_mode = S_IFDIR };
+    const off_t off = 0;  // Offset of next entry. Not used.
+    pos = fuse_add_direntry(req, buf, size, ".", &st, off);
+    // This entry should always fit, unless `size` was unreasonably small.
+    CHECK(pos <= size);
+  }
+
+  struct sqlfs *sqlfs = fuse_req_userdata(req);
+  sqlfs_dir_open(sqlfs, ino, dir_handle->next_name);
+  free(dir_handle->next_name);
+  dir_handle->next_name = NULL;
+  for (;;) {
+    struct stat st = {0};
+    const char *name = NULL;
+    if (!sqlfs_dir_next(sqlfs, &name, &st.st_ino, &st.st_mode)) {
+      // Reached end of directory listing.
+      dir_handle->at_end = true;
+      break;
+    }
+    at_beginning = false;
+    off_t off = 0;  // Offset of next entry. Not used.
+    size_t len = fuse_add_direntry(req, buf + pos, size - pos, name, &st, off);
+    if (len > size - pos) {
+      // Buffer full. Save next filename for continuing later.
+      char *name_copy = strdup(name);
+      CHECK(name_copy);
+      dir_handle->next_name = name_copy;
+      break;
+    }
+    pos += len;
+  }
+  sqlfs_dir_close(sqlfs);
+
+  if (at_beginning) {
+    // If the directory didn't contain ANY entries (not even the .. entry)
+    // then it wasn't a directory. (It may not even be a file, but we cannot
+    // distinguish between ENOENT and ENOTDIR here, so we just return ENOTDIR).
+    reply_err(req, ENOTDIR);
+  } else {
+    // The only reason why we wouldn't have filled in any entries here, is if
+    // the buffer size was too small to fit the next entry. That shouldn't be
+    // possible (we assume the file name length is limited by the kernel, and
+    // that FUSE will pass a sufficiently large `size` so that we can always
+    // make some progress).
+    CHECK(pos > 0);
+    reply_buf(req, buf, pos);
+  }
+
+  free(buf);
 }
 
 static void sqlfuse_releasedir(fuse_req_t req, fuse_ino_t ino,
     struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino));
-  reply_err(req, ENOSYS);
+  struct dir_handle *dir_handle = (struct dir_handle *)fi->fh;
+  free(dir_handle->next_name);
+  free(dir_handle);
+  reply_err(req, 0);
 }
 
 const struct fuse_lowlevel_ops sqlfuse_ops = {

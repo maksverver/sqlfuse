@@ -30,7 +30,6 @@
 
 #include "sqlfs.h"
 
-#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -68,6 +67,8 @@ enum statements {
   STMT_COUNT_DIRENTRIES,
   STMT_DELETE_DIRENTRIES,
   STMT_DELETE_DIRENTRIES_BY_NAME,
+  STMT_READ_DIRENTRIES,
+  STMT_READ_DIRENTRIES_START,
   NUM_STATEMENTS };
 
 // SQL strings for prepared statements. This could just be an array of strings,
@@ -155,6 +156,20 @@ static const struct Statement {
 #define PARAM_DELETE_DIRENTRIES_BY_NAME_ENTRY_NAME 2
     "DELETE FROM direntries WHERE dir_ino = ? AND entry_name = ?" },
 
+  { STMT_READ_DIRENTRIES,
+#define PARAM_READ_DIRENTRIES_DIR_INO  1
+#define COL_READ_DIRENTRIES_ENTRY_NAME 0
+#define COL_READ_DIRENTRIES_ENTRY_INO  1
+#define COL_READ_DIRENTRIES_ENTRY_TYPE 2
+#define SELECT_DIRENTRIES "SELECT entry_name, entry_ino, entry_type FROM direntries"
+#define ORDER_DIRENTRIES "ORDER BY entry_name"
+    SELECT_DIRENTRIES " WHERE dir_ino = ? " ORDER_DIRENTRIES },
+
+  { STMT_READ_DIRENTRIES_START,
+#define PARAM_READ_DIRENTRIES_START_DIR_INO    1
+#define PARAM_READ_DIRENTRIES_START_ENTRY_NAME 2
+    SELECT_DIRENTRIES " WHERE dir_ino = ? AND entry_name >= ? " ORDER_DIRENTRIES },
+
   {-1, NULL}
 };
 
@@ -164,13 +179,14 @@ struct sqlfs {
   uid_t uid;
   gid_t gid;
   sqlite3_stmt *stmt[NUM_STATEMENTS];
+  sqlite3_stmt *dir_stmt;
 };
 
 enum name_kind { NAME_EMPTY, NAME_DOT, NAME_DOTDOT, NAME_REGULAR };
 
 // NOTE: this doesn't identify names containing a slash (which are invalid too).
 static enum name_kind name_kind(const char *name) {
-  CHECK(name);
+  if (name == NULL) return NAME_EMPTY;
   if (name[0] == '\0') return NAME_EMPTY;
   if (name[0] != '.') return NAME_REGULAR;
   if (name[1] == '\0') return NAME_DOT;
@@ -596,7 +612,8 @@ void sqlfs_destroy(struct sqlfs *sqlfs) {
   //   handles, and finish all sqlite3_backup objects associated with the
   //   sqlite3 object prior to attempting to close the object."
   // TODO: make sure that has actually happened!
-  assert(sqlfs);
+  CHECK(sqlfs);
+  CHECK(sqlfs->dir_stmt == NULL);
   for (int i = 0; i < NUM_STATEMENTS; ++i) {
     if (sqlfs->stmt[i]) {
       CHECK(sqlite3_finalize(sqlfs->stmt[i]) == SQLITE_OK);
@@ -770,4 +787,50 @@ finish:
   }
   CHECK(err >= 0);
   return err;
+}
+
+void sqlfs_dir_open(struct sqlfs *sqlfs, ino_t ino, const char *start_name) {
+  CHECK(sqlfs->dir_stmt == NULL);
+  sqlite3_stmt *stmt = NULL;
+  switch (name_kind(start_name)) {
+  case NAME_EMPTY:
+  case NAME_DOT:
+  case NAME_DOTDOT:
+    stmt = sqlfs->stmt[STMT_READ_DIRENTRIES];
+    CHECK(sqlite3_bind_int64(stmt, PARAM_READ_DIRENTRIES_DIR_INO, ino) == SQLITE_OK);
+    break;
+
+  case NAME_REGULAR:
+    stmt = sqlfs->stmt[STMT_READ_DIRENTRIES_START];
+    CHECK(sqlite3_bind_int64(stmt, PARAM_READ_DIRENTRIES_START_DIR_INO, ino) == SQLITE_OK);
+    CHECK(sqlite3_bind_text(stmt, PARAM_READ_DIRENTRIES_START_ENTRY_NAME, start_name, -1, SQLITE_TRANSIENT) == SQLITE_OK);
+  }
+  CHECK(stmt);
+  sqlfs->dir_stmt = stmt;
+}
+
+bool sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *mode) {
+  sqlite3_stmt *stmt = sqlfs->dir_stmt;
+  CHECK(stmt);
+  int status = sqlite3_step(stmt);
+  if (status == SQLITE_ROW) {
+    const char *n = (const char *) sqlite3_column_text(stmt, COL_READ_DIRENTRIES_ENTRY_NAME);
+    CHECK(n);
+    *name = *n ? n : "..";
+    *ino = sqlite3_column_int64(stmt, COL_READ_DIRENTRIES_ENTRY_INO);
+    *mode = sqlite3_column_int64(stmt, COL_READ_DIRENTRIES_ENTRY_TYPE) << 12;
+    return true;
+  }
+  if (status != SQLITE_DONE) {
+    LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+  }
+  return false;
+}
+
+void sqlfs_dir_close(struct sqlfs *sqlfs) {
+  sqlite3_stmt *stmt = sqlfs->dir_stmt;
+  CHECK(stmt);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  sqlfs->dir_stmt = NULL;
 }
