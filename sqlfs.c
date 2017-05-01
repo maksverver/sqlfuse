@@ -483,7 +483,7 @@ static int sql_insert_direntries(struct sqlfs *sqlfs, ino_t dir_ino, const char 
 }
 
 // Returns a count of the number of directory entries for the directory with
-// inode number `dir_ino`, including the empty entry (corresponding to ".").
+// inode number `dir_ino`, including the empty entry (corresponding to "..").
 // That means the count is 1 for an empty directory, or 0 for non-existent
 // directories (including files, which aren't directories).
 static int64_t sql_count_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
@@ -515,7 +515,7 @@ static int sql_delete_direntry(struct sqlfs *sqlfs, ino_t dir_ino, const char *e
 }
 
 // Deletes all entries in the given directory. This includes the empty entry
-// (corresponding to ".") so afterwards, the directory is in an invalid state,
+// (corresponding to "..") so afterwards, the directory is in an invalid state,
 // and its metadata should be removed separately.
 //
 // This doesn't delete files/directories recursively. The caller must make sure
