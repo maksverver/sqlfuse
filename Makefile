@@ -8,14 +8,16 @@ LDLIBS+=-lpthread
 # Some platforms may need:
 #LDLIBS+=-lrt
 
-COMMON_OBJS=logging.o sqlfs.o sqlfuse.o
+COMMON_OBJS=logging.o sqlfs.o sqlfuse.o intmap.o
 ALL_OBJS=$(COMMON_OBJS) main.o sqlfuse_tests.o
 SQLFUSE_OBJS=$(COMMON_OBJS) main.o
+INTMAP_TESTS_OBJS=$(COMMON_OBJS) test_common.o intmap_tests.o
 SQLFUSE_TESTS_OBJS=$(COMMON_OBJS) test_common.o sqlfuse_tests.o
 
 all: sqlfuse
 
-test: sqlfuse_tests
+test: intmap_tests sqlfuse_tests
+	./intmap_tests
 	./sqlfuse_tests
 
 sqlfs.o: sqlfs.c sqlfs.h sqlfs_schema.h
@@ -24,6 +26,9 @@ sqlfs.o: sqlfs.c sqlfs.h sqlfs_schema.h
 sqlfuse: $(SQLFUSE_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(SQLFUSE_OBJS) $(LDLIBS)
 
+intmap_tests: $(INTMAP_TESTS_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(INTMAP_TESTS_OBJS) $(LDLIBS)
+
 sqlfuse_tests: $(SQLFUSE_TESTS_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(SQLFUSE_TESTS_OBJS) $(LDLIBS)
 
@@ -31,6 +36,6 @@ clean:
 	rm -f $(ALL_OBJS)
 
 distclean: clean
-	rm -f sqlfuse sqlfuse_tests
+	rm -f sqlfuse intmap_tests sqlfuse_tests
 
 .PHONY: all test clean distclean
