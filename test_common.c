@@ -1,19 +1,21 @@
 // Unit test framework.
 
 #include <assert.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <unistd.h>
 
 #include "test_common.h"
 
 static int failures;
 
-void test_expect_eq(const char *file, int line, const char *func, const char *expr1, const char *expr2, int value1, int value2) {
+void test_expect_eq(const char *file, int line, const char *func, const char *expr1, const char *expr2, int64_t value1, int64_t value2) {
   if (value1 == value2) return;
-  fprintf(stderr, "[%s:%d] Assertion failed in %s(). Expected %s (%d) to be equal to %s (%d).\n",
+  fprintf(stderr, "[%s:%d] Assertion failed in %s(). Expected %s (%" PRId64 ") to be equal to %s (%" PRId64 ").\n",
       file, line, func, expr1, value1, expr2, value2);
   ++failures;
 }

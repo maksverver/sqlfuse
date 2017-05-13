@@ -2,11 +2,12 @@
 #define TEST_COMMON_H_INCLUDED
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #define EXPECT_EQ(x, y) test_expect_eq(__FILE__, __LINE__, __func__, #x, #y, (x), (y))
 #define EXPECT(x) test_expect_eq(__FILE__, __LINE__, __func__, #x, "true", (bool)(x), true)
 
-void test_expect_eq(const char *file, int line, const char *func, const char *expr1, const char *expr2, int value1, int value2);
+void test_expect_eq(const char *file, int line, const char *func, const char *expr1, const char *expr2, int64_t value1, int64_t value2);
 
 void test_fail();
 
