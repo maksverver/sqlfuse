@@ -29,6 +29,7 @@
 #include "logging.h"
 #include "sqlfs.h"
 #include "sqlfuse.h"
+#include "test_common.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -36,7 +37,6 @@
 
 static bool enable_fuse_debug_logging;
 static char *sqlite_path_for_dump;
-static int failures;
 static char *testdir;
 static char *mountpoint;
 static char *database;
@@ -45,16 +45,6 @@ static struct fuse_args fuse_args;
 static struct fuse_chan *fuse_chan;
 static struct fuse_session *fuse_session;
 static pthread_t fuse_thread;
-
-#define EXPECT_EQ(x, y) expect_eq(__FILE__, __LINE__, __func__, #x, #y, (x), (y))
-#define EXPECT(x) expect_eq(__FILE__, __LINE__, __func__, #x, "true", (bool)(x), true);
-
-void expect_eq(const char *file, int line, const char *func, const char *expr1, const char *expr2, int value1, int value2) {
-  if (value1 == value2) return;
-  fprintf(stderr, "[%s:%d] Assertion failed in %s(). Expected %s (%d) to be equal to %s (%d).\n",
-      file, line, func, expr1, value1, expr2, value2);
-  ++failures;
-}
 
 #ifdef __GNUC__
 static char *aprintf(const char *format, ...)
@@ -216,7 +206,7 @@ static nlink_t nlinks(const char *path) {
   struct stat st = {0};
   if (stat(path, &st) != 0) {
     fprintf(stderr, "stat([%s]) failed.\n", path);
-    ++failures;
+    test_fail();
     return -1;
   }
   return st.st_nlink;
@@ -303,10 +293,7 @@ static void test_rmdir() {
   teardown();
 }
 
-static const struct Test {
-  const char *name;
-  void (*func)(void);
-} tests[] = {
+static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
   TEST(rootdir),
@@ -314,46 +301,6 @@ static const struct Test {
   TEST(rmdir),
 #undef TEST
   {NULL, NULL}};
-
-static const struct Test *find_test(const char *name) {
-  for (const struct Test *test = tests; test->func != NULL; ++test) {
-    if (strcmp(test->name, name) == 0) {
-      return test;
-    }
-  }
-  return NULL;
-}
-
-static bool run_test(const struct Test *test) {
-  int failures_before = failures;
-  test->func();
-  bool passed = failures == failures_before;
-  fprintf(stderr, "Test %s %s.\n", test->name, passed ? "passed" : "failed");
-  return passed;
-}
-
-static bool run_tests(char **test_names, int num_tests) {
-  int failed_tests = 0;
-  failures = 0;
-  if (num_tests == 0) {
-    // Run all tests.
-    for (const struct Test *test = tests; test->func != NULL; ++test) {
-      failed_tests += !run_test(test);
-    }
-  } else {
-    for (int i = 0; i < num_tests; ++i) {
-      const struct Test *test = find_test(test_names[i]);
-      if (test == NULL) {
-        fprintf(stderr, "Test [%s] not found!\n", test_names[i]);
-        ++failed_tests;
-      } else {
-        failed_tests += !run_test(test);
-      }
-    }
-  }
-  fprintf(stderr, "%d test failures. %d tests failed.\n", failures, failed_tests);
-  return failed_tests == 0;
-}
 
 int main(int argc, char *argv[]) {
   // Parse command line options.
@@ -384,7 +331,7 @@ int main(int argc, char *argv[]) {
   // Run tests.
   CHECK(optind <= argc);
   global_setup();
-  bool all_pass = run_tests(argv + optind, argc - optind);
+  bool all_pass = test_run(tests, (const char**)argv + optind, argc - optind);
   global_teardown();
   return all_pass ? 0 : 1;
 }

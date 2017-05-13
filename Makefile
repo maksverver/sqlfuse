@@ -9,14 +9,14 @@ LDLIBS+=-lpthread
 #LDLIBS+=-lrt
 
 COMMON_OBJS=logging.o sqlfs.o sqlfuse.o
-ALL_OBJS=$(COMMON_OBJS) main.o tests.o
+ALL_OBJS=$(COMMON_OBJS) main.o sqlfuse_tests.o
 SQLFUSE_OBJS=$(COMMON_OBJS) main.o
-TESTS_OBJS=$(COMMON_OBJS) tests.o
+SQLFUSE_TESTS_OBJS=$(COMMON_OBJS) test_common.o sqlfuse_tests.o
 
 all: sqlfuse
 
-test: tests
-	./tests
+test: sqlfuse_tests
+	./sqlfuse_tests
 
 sqlfs.o: sqlfs.c sqlfs.h sqlfs_schema.h
 	$(CC) $(CFLAGS) -o $@ -c $<
@@ -24,13 +24,13 @@ sqlfs.o: sqlfs.c sqlfs.h sqlfs_schema.h
 sqlfuse: $(SQLFUSE_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(SQLFUSE_OBJS) $(LDLIBS)
 
-tests: $(TESTS_OBJS)
-	$(CC) $(LDFLAGS) -o $@ $(TESTS_OBJS) $(LDLIBS)
+sqlfuse_tests: $(SQLFUSE_TESTS_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(SQLFUSE_TESTS_OBJS) $(LDLIBS)
 
 clean:
 	rm -f $(ALL_OBJS)
 
 distclean: clean
-	rm -f sqlfuse tests
+	rm -f sqlfuse sqlfuse_tests
 
 .PHONY: all test clean distclean
