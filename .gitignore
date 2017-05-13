@@ -1,3 +1,4 @@
 *.o
 sqlfuse
-tests
+sqlfuse_tests
+intmap_tests
