@@ -124,12 +124,14 @@ static const struct Statement {
     "UPDATE metadata SET nlink = nlink + ? WHERE ino = ?" },
 
   { STMT_INSERT_METADATA,
-#define PARAM_INSERT_METADATA_MODE  1
-#define PARAM_INSERT_METADATA_NLINK 2
-#define PARAM_INSERT_METADATA_UID   3
-#define PARAM_INSERT_METADATA_GID   4
-#define PARAM_INSERT_METADATA_MTIME 5
-    "INSERT INTO metadata(mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?)" },
+#define PARAM_INSERT_METADATA_MODE    1
+#define PARAM_INSERT_METADATA_NLINK   2
+#define PARAM_INSERT_METADATA_UID     3
+#define PARAM_INSERT_METADATA_GID     4
+#define PARAM_INSERT_METADATA_MTIME   5
+#define PARAM_INSERT_METADATA_SIZE    6
+#define PARAM_INSERT_METADATA_BLKSIZE 7
+    "INSERT INTO metadata(mode, nlink, uid, gid, mtime, size, blksize) VALUES (?, ?, ?, ?, ?, ?, ?)" },
 
   { STMT_DELETE_METADATA,
 #define PARAM_DELETE_METADATA_INO 1
@@ -367,6 +369,10 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
   CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_UID, sqlfs->uid) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_GID, sqlfs->gid) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_MTIME, timespec_to_nanos(&stat->st_mtim)) == SQLITE_OK);
+  if (!S_ISDIR(mode)) {
+    CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_SIZE, 0) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_BLKSIZE, BLKSIZE) == SQLITE_OK);
+  }
 
   int status = sqlite3_step(stmt);
   if (status != SQLITE_DONE) {
