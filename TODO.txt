@@ -1,22 +1,35 @@
 Next:
   - Add tests for opendir()/readdir()/closedir()!
+  - Fix hardlink counting of directories: we should not count the self-link
+    in the nlink column of the metadata table. This way, an empty directory
+    has nlink == 0, which allows us to easily garbage collect it (similar to
+    unlinked files).
+  - Test if other filesystems support creating files/subdirectories in unlinked
+    directories (using unlink()/createnodat()?). How should I handle that case?
+  - open()/close() of files
+  - read()/write() of files
+  - truncate() of files.
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
-  - Lookup accounting!
-  - Delete unlinked files at startup. (Note: should also delete file/directory
-    contents!)
+  - test unlinking of open files, and reading/writing from them
+  - Lookup accounting!!!
+  - Delete unlinked files/directories at startup. (Note: should also delete
+    file/directory contents!)
   - sqlfs.c: Maybe: separate functions to create/open existing database?
-  - If creating the database fails, should we delete the partially-created
-    database file (which will be empty)
+  - CLI: does it make sense to separate database creation from mounting?
+    For example:
+      sqlfuse -c new.db    # creates file
+      sqlfuse new.db mnt   # mounts it
+    Exit with an error if a mountpoint is specified in the first case.
+  - CLI: if creating the database fails, should we delete the partially-created
+    database file (which will be empty)?
   - Figure out which functions increase the 'lookup count' for an inode;
     document this somewhere.
   - Figure out what happens if an open directory is deleted?
 
 Things to test:
-  - open read-only file
-  - use after unlink/rename of files
-  - re-open existing file, verify contents are still there.
+  - open read-only database file (read operations should still succeed,
+    write operations should fail gracefully, without crashing)
   - sqlfs tests with encryption (no setup/teardown)
-  - tests should dump database state after test & check it makes sense.
 
 TBD:
   - what should the uid/gid/mode of the root directory be?
@@ -40,5 +53,8 @@ General TODO:
   - fully document the schema definition (wait until the implementation is
     further along; no point documenting it when it's likely to change)
   - fsck tool that checks internal consistency?
+    (once implemented, add it to teardown() in sqlfuse_test to verify that each
+    test case leaves the filesystem in a consistent state, without dangling
+    pointers and so on).
   - dump tool to dump contents of database?
   - another tool to rekey the database?
