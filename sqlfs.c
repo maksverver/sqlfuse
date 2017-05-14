@@ -4,8 +4,8 @@
 //
 //  - Function names starting with "sqlfs_" indicate exported functions with a
 //    declaration in sqlfs.h (which is also where they are documented).
-//  - Function names starting with "sql_" indicate those functions mainly execute
-//    SQL statements. They will be declared static.
+//  - Helper function names starting with "sql_" indicate those functions
+//    (mainly) execute SQL statements. They will be declared static.
 //  - Other helper functions use no particular prefix. They will also be static.
 //
 // Conventions on error propagation:
@@ -752,65 +752,90 @@ finish:
   return err;
 }
 
-int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino_out) {
-  // Minor bug: this function should technicaly return ENOTDIR instead of
-  // ENOENT if dir_ino does not refer to a directory. (Perhaps this isn't an
-  // issue in practice, if FUSE verifies dir_ino refers to a directory before
-  // calling this function.)
-
+// Unlinks a file (if dir == false) or a directory (if dir == true).
+//
+// Used to implement sqlfs_rmdir() and sqlfs_unlink().
+//
+// Minor bug: this function should technicaly return ENOTDIR instead of ENOENT if
+// dir_ino does not refer to a directory. (Perhaps this isn't an issue in practice, if
+// FUSE verifies dir_ino refers to a directory before calling this function.)
+static int remove_impl(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, bool dir, ino_t *child_ino_out) {
   sql_begin_transaction(sqlfs);
   int err = -1;
 
+  // Find the entry by its name in the given directory.
   ino_t child_ino = 0;
   mode_t child_mode = 0;
   err = lookup(sqlfs, dir_ino, name, &child_ino, &child_mode);
   if (err != 0) {
     // err is ENOENT, EINVAL or EIO
-    goto finish;
+    goto rollback;
   }
-  if (!S_ISDIR(child_mode)) {
-    err = ENOTDIR;
-    goto finish;
+  if (dir) {
+    // Verify that entry refers to an empty subdirectory.
+    if (!S_ISDIR(child_mode)) {
+      err = ENOTDIR;
+      goto rollback;
+    }
+    if (child_ino == ROOT_INO) {
+      err = EBUSY;
+      goto rollback;
+    }
+    if (child_ino == dir_ino) {
+      err = EINVAL;
+      goto rollback;
+    }
+    const int64_t entry_count = sql_count_direntries(sqlfs, child_ino);
+    if (entry_count > 1) {
+      err = ENOTEMPTY;
+      goto rollback;
+    }
+    // If everything is consistent, the directory contains exactly one entry with
+    // entry_name = "" and entry_ino = dir_ino: the link to the parent directory.
+    CHECK(entry_count == 1);
+    err = sql_delete_direntries(sqlfs, child_ino);
+    if (err != 0) {
+      // err is EIO
+      goto rollback;
+    }
+    // Decrease parent directory link count.
+    err = sql_dec_nlink(sqlfs, dir_ino);
+    if (err != 0) {
+      goto rollback;
+    }
+  } else {
+    // Verify that entry refers to a file.
+    if (S_ISDIR(child_mode)) {
+      // Can only unlink files (or symlinks); not directories.
+      err = EISDIR;
+      goto rollback;
+    }
   }
-  if (child_ino == ROOT_INO) {
-    err = EBUSY;
-    goto finish;
-  }
-  if (child_ino == dir_ino) {
-    err = EINVAL;
-    goto finish;
-  }
-  const int64_t entry_count = sql_count_direntries(sqlfs, child_ino);
-  if (entry_count > 1) {
-    err = ENOTEMPTY;
-    goto finish;
-  }
-  // If everything is consistent, the directory contains exactly one entry with
-  // entry_name = "" and entry_ino = dir_ino: the link to the parent directory.
-  CHECK(entry_count == 1);
-  err = sql_delete_direntries(sqlfs, child_ino);
-  if (err != 0) {
-    // err is EIO
-    goto finish;
-  }
-  // Unlink child directory from parent directory.
+
+  // Unlink entry from parent directory & decrease its hardlink count.
   err = sql_delete_direntry(sqlfs, dir_ino, name);
   if (err != 0) {
     // err is EIO
-    goto finish;
+    goto rollback;
   }
-  // Decrease child directory link count.
-  err = sql_dec_nlink(sqlfs, dir_ino);
+  err = sql_dec_nlink(sqlfs, child_ino);
+  if (err != 0) {
+    goto rollback;
+  }
 
-finish:
-  if (err == 0) {
-    *child_ino_out = child_ino;
-    sql_commit_transaction(sqlfs);
-  } else {
-    sql_rollback_transaction(sqlfs);
-  }
-  CHECK(err >= 0);
+  CHECK(err == 0);
+  *child_ino_out = child_ino;
+  sql_commit_transaction(sqlfs);
+  return 0;
+
+rollback:
+  CHECK(err > 0);
+  sql_rollback_transaction(sqlfs);
   return err;
+}
+
+int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino_out) {
+  return remove_impl(sqlfs, dir_ino, name, true /* dir */, child_ino_out);
 }
 
 void sqlfs_dir_open(struct sqlfs *sqlfs, ino_t ino, const char *start_name) {
@@ -901,41 +926,7 @@ finish:
 }
 
 int sqlfs_unlink(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino_out) {
-  // Minor bug: this function should technicaly return ENOTDIR instead of
-  // ENOENT if dir_ino does not refer to a directory. (See also sqlfs_rmdir()).
-
-  sql_begin_transaction(sqlfs);
-  int err = -1;
-
-  ino_t child_ino = 0;
-  mode_t child_mode = 0;
-  err = lookup(sqlfs, dir_ino, name, &child_ino, &child_mode);
-  if (err != 0) {
-    // err is ENOENT, EINVAL or EIO
-    goto finish;
-  }
-  if (S_ISDIR(child_mode)) {
-    // Can only unlink files (or symlinks); not directories.
-    return EISDIR;
-  }
-  // Unlink file from parent directory.
-  err = sql_delete_direntry(sqlfs, dir_ino, name);
-  if (err != 0) {
-    // err is EIO
-    goto finish;
-  }
-  // Decrease hardlink count.
-  err = sql_dec_nlink(sqlfs, child_ino);
-
-finish:
-  if (err == 0) {
-    *child_ino_out = child_ino;
-    sql_commit_transaction(sqlfs);
-  } else {
-    sql_rollback_transaction(sqlfs);
-  }
-  CHECK(err >= 0);
-  return err;
+  return remove_impl(sqlfs, dir_ino, name, false /* dir */, child_ino_out);
 }
 
 int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino) {
