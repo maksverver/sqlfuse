@@ -360,8 +360,16 @@ static void test_mknod_unlink() {
   EXPECT_EQ(errno, EISDIR);
   EXPECT_EQ(rmdir(buf), 0);
 
+  snprintf(buf, sizeof(buf), "%s/bar", mountpoint);
+  EXPECT_EQ(unlink(buf), 0);
+
+  // After files are deleted, their inode numbers may be re-used. Note: the fact
+  // that this actually happens should be considered an implementation detail.
   snprintf(buf, sizeof(buf), "%s/baz", mountpoint);
   EXPECT_EQ(mknod(buf, S_IFREG | 0600, 0), 0);
+  EXPECT_EQ(stat(buf, &st), 0);
+  EXPECT_EQ(st.st_ino, 2);  // foo's old inode number
+  EXPECT_EQ(st.st_nlink, 1);
 
   // TODO: readdir to verify directory contains /bar, /baz
   // TODO: Maybe add test for mknodat? What happens if parent dir is already deleted?
