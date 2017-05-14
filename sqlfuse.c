@@ -152,7 +152,13 @@ static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
     mode_t mode, dev_t rdev) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode), TRACE_UINT(rdev));
-  reply_err(req, ENOSYS);
+  struct stat attr;
+  int err = sqlfs_mknod(fuse_req_userdata(req), parent, name, mode, &attr);
+  if (err == 0) {
+    fuse_reply_attr(req, &attr, 0.0 /* attr_timeout */);
+  } else {
+    reply_err(req, err);
+  }
 }
 
 static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode) {
@@ -171,13 +177,25 @@ static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 
 static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
-  reply_err(req, ENOSYS);
+  struct sqlfs *const sqlfs = fuse_req_userdata(req);
+  ino_t child_ino = 0;
+  int err = sqlfs_unlink(sqlfs, parent, name, &child_ino);
+  if (err == 0) {
+    // TODO: only do this if lookup count is zero!
+    err = sqlfs_purge(sqlfs, child_ino);
+  }
+  reply_err(req, err);
 }
 
 static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
-
-  int err = sqlfs_rmdir(fuse_req_userdata(req), parent, name);
+  struct sqlfs *const sqlfs = fuse_req_userdata(req);
+  ino_t child_ino = 0;
+  int err = sqlfs_rmdir(sqlfs, parent, name, &child_ino);
+  if (err == 0) {
+    // TODO: only do this if lookup count is zero!
+    err = sqlfs_purge(sqlfs, child_ino);
+  }
   return reply_err(req, err);
 }
 

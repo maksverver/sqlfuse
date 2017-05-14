@@ -64,7 +64,9 @@ int sqlfs_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
 int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mode,
     struct stat *stat);
 
-// Removes subdirectory.
+// Removes a subdirectory. On success, the inode number of the removed directory
+// is written to *child_ino. The directory is not actually deleted until
+// sqlfs_purge() is called.
 //
 // Returns:
 //  0 on success
@@ -74,7 +76,7 @@ int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
 //  EBUSY if the named entry refers to the root directory
 //  ENOTEMPTY if the named directory is not empty
 //  EIO if a database operation fails
-int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name);
+int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino);
 
 // The sqlfs_dir_open(), sqlfs_dir_next() and sqlfs_dir_close() functions are
 // used to read the contents of a directory. The first entry is always ".." and
@@ -127,5 +129,44 @@ bool sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *
 
 // Closes a directory opened previously by sqlfs_dir_open().
 void sqlfs_dir_close(struct sqlfs *sqlfs);
+
+// Creates a new file in the given directory.
+//
+// `dir_ino` refers to the existing directory in which the file will be created.
+// `name` contains the filename, which must be a valid regular file name.
+// `mode` contains the file mode. The file type bits must be S_IFREG. There is
+// no restriction on the permission bits.
+//
+// On success, the file metadata is written to *stat.
+//
+// Returns:
+//  0 on succes
+//  ENOENT if the directory does not exist
+//  ENOTDIR if `dir_ino` does not refer to a directory
+//  EINVAL if the given `name` is invalid, or `mode` is not a regular file mode
+//  EIO if a database operation failed
+int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mode, struct stat *stat);
+
+// Unlink a directory entry, and decrease the hardlink count of the referenced
+// file by one. On success, the inode number of the unlinked file is written to
+// *child_ino. Even if its hardlink count has dropped to 0, the file is not
+// deleted until sqlfs_purge() is called.
+//
+// Returns:
+//  0 on success
+//  ENOENT if either the parent directory or the named file does not exist
+//  EISDIR if the named file is actually a directory, not a file
+//  EIO if a database operation failed
+int sqlfs_unlink(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino);
+
+// Delete metadata associated with the given file/directory, but only if its
+// hardlink count is zero. (If the hardlink count is nonzero, this function does
+// nothing).
+//
+// Returns:
+//  0 on success
+//  ENOENT if the inode doesn't exist
+//  EIO if a database operation failed
+int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino);
 
 #endif

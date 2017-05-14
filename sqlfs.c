@@ -69,6 +69,7 @@ enum statements {
   STMT_DELETE_DIRENTRIES_BY_NAME,
   STMT_READ_DIRENTRIES,
   STMT_READ_DIRENTRIES_START,
+  STMT_DELETE_FILEDATA,
   NUM_STATEMENTS };
 
 // SQL strings for prepared statements. This could just be an array of strings,
@@ -171,6 +172,10 @@ static const struct Statement {
 #define PARAM_READ_DIRENTRIES_START_DIR_INO    1
 #define PARAM_READ_DIRENTRIES_START_ENTRY_NAME 2
     SELECT_DIRENTRIES " WHERE dir_ino = ? AND entry_name >= ? " ORDER_DIRENTRIES },
+
+  { STMT_DELETE_FILEDATA,
+#define PARAM_DELETE_FILEDATA_INO 1
+    "DELETE FROM filedata WHERE ino = ?" },
 
   {-1, NULL}
 };
@@ -301,7 +306,7 @@ static void create_root_directory(struct sqlfs *sqlfs) {
 }
 
 static void fill_stat(sqlite3_stmt *stmt, struct stat *stat) {
-  memset(stat, 0, sizeof(struct stat));
+  memset(stat, 0, sizeof(*stat));
   stat->st_ino = sqlite3_column_int64(stmt, COL_STAT_INO);
   stat->st_mode = sqlite3_column_int64(stmt, COL_STAT_MODE);
   stat->st_nlink = sqlite3_column_int64(stmt, COL_STAT_NLINK);
@@ -553,6 +558,19 @@ static int sql_delete_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
+// Deletes the contents of the file identified by the given inode number.
+// Caller must update/delete the file metadata separately!
+//
+// Returns 0 on success, or EIO if the database operation fails.
+static int sql_delete_filedata(struct sqlfs *sqlfs, ino_t ino) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_DELETE_FILEDATA];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_FILEDATA_INO, ino) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return status == SQLITE_DONE ? 0 : EIO;
+}
+
 struct sqlfs *sqlfs_create(
     const char *filepath, const char *password,
     mode_t umask, uid_t uid, gid_t gid) {
@@ -688,6 +706,7 @@ int sqlfs_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *name,
 int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mode,
     struct stat *stat) {
   memset(stat, 0, sizeof(*stat));
+
   if (name_kind(name) != NAME_REGULAR) {
     return EINVAL;
   }
@@ -712,7 +731,7 @@ int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
   if (err != 0) {
     goto finish;
   }
-  // Insert child into parent subdirectory.
+  // Insert child into parent directory.
   err = sql_insert_direntries(sqlfs, dir_ino, name, stat->st_ino, stat->st_mode);
   if (err != 0) {
     goto finish;
@@ -733,7 +752,7 @@ finish:
   return err;
 }
 
-int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name) {
+int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino_out) {
   // Minor bug: this function should technicaly return ENOTDIR instead of
   // ENOENT if dir_ino does not refer to a directory. (Perhaps this isn't an
   // issue in practice, if FUSE verifies dir_ino refers to a directory before
@@ -766,27 +785,26 @@ int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name) {
     err = ENOTEMPTY;
     goto finish;
   }
+  // If everything is consistent, the directory contains exactly one entry with
+  // entry_name = "" and entry_ino = dir_ino: the link to the parent directory.
   CHECK(entry_count == 1);
-
   err = sql_delete_direntries(sqlfs, child_ino);
   if (err != 0) {
     // err is EIO
     goto finish;
   }
-  err = sql_delete_metadata(sqlfs, child_ino);
-  if (err != 0) {
-    // err is EIO
-    goto finish;
-  }
+  // Unlink child directory from parent directory.
   err = sql_delete_direntry(sqlfs, dir_ino, name);
   if (err != 0) {
     // err is EIO
     goto finish;
   }
+  // Decrease child directory link count.
   err = sql_dec_nlink(sqlfs, dir_ino);
 
 finish:
   if (err == 0) {
+    *child_ino_out = child_ino;
     sql_commit_transaction(sqlfs);
   } else {
     sql_rollback_transaction(sqlfs);
@@ -839,4 +857,122 @@ void sqlfs_dir_close(struct sqlfs *sqlfs) {
   CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
   sqlfs->dir_stmt = NULL;
+}
+
+int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mode, struct stat *stat) {
+  memset(stat, 0, sizeof(*stat));
+
+  if (name_kind(name) != NAME_REGULAR) {
+    return EINVAL;
+  }
+  if (mode > S_IFMT || !S_ISREG(mode)) {
+    return EINVAL;
+  }
+
+  sql_begin_transaction(sqlfs);
+
+  struct stat dir_stat;
+  int err = sqlfs_stat(sqlfs, dir_ino, &dir_stat);
+  if (err != 0) {
+    goto finish;
+  }
+  if (!S_ISDIR(dir_stat.st_mode)) {
+    err = ENOTDIR;
+    goto finish;
+  }
+  // Create file inode.
+  err = sql_insert_metadata(sqlfs, mode, 1 /*  nlink */, stat);
+  if (err != 0) {
+    goto finish;
+  }
+  // Insert file into parent directory.
+  err = sql_insert_direntries(sqlfs, dir_ino, name, stat->st_ino, stat->st_mode);
+  if (err != 0) {
+    goto finish;
+  }
+
+finish:
+  if (err == 0) {
+    sql_commit_transaction(sqlfs);
+  } else {
+    sql_rollback_transaction(sqlfs);
+  }
+  return err;
+}
+
+int sqlfs_unlink(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino_out) {
+  // Minor bug: this function should technicaly return ENOTDIR instead of
+  // ENOENT if dir_ino does not refer to a directory. (See also sqlfs_rmdir()).
+
+  sql_begin_transaction(sqlfs);
+  int err = -1;
+
+  ino_t child_ino = 0;
+  mode_t child_mode = 0;
+  err = lookup(sqlfs, dir_ino, name, &child_ino, &child_mode);
+  if (err != 0) {
+    // err is ENOENT, EINVAL or EIO
+    goto finish;
+  }
+  if (S_ISDIR(child_mode)) {
+    // Can only unlink files (or symlinks); not directories.
+    return EISDIR;
+  }
+  // Unlink file from parent directory.
+  err = sql_delete_direntry(sqlfs, dir_ino, name);
+  if (err != 0) {
+    // err is EIO
+    goto finish;
+  }
+  // Decrease hardlink count.
+  err = sql_dec_nlink(sqlfs, dir_ino);
+
+finish:
+  if (err == 0) {
+    *child_ino_out = child_ino;
+    sql_commit_transaction(sqlfs);
+  } else {
+    sql_rollback_transaction(sqlfs);
+  }
+  CHECK(err >= 0);
+  return err;
+}
+
+int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino) {
+  sql_begin_transaction(sqlfs);
+
+  struct stat stat;
+  int err = sqlfs_stat(sqlfs, ino, &stat);
+  if (err != 0) {
+    goto finish;
+  }
+
+  // FIXME: directory should not have hardlink count of 1 here.
+  if (stat.st_nlink > (S_ISDIR(stat.st_mode) ? 1 : 0)) {
+    // Not ready to be purged yet. Return success immediately.
+    err = 0;
+    goto finish;
+  }
+
+  if (S_ISDIR(stat.st_mode)) {
+    // If everything is consistent, the directory is already empty, so we don't
+    // need to delete anything from the direntries table.
+  } else {
+    // Delete file contents from the filedata table.
+    err = sql_delete_filedata(sqlfs, ino);
+  }
+  if (err != 0) {
+    // err is EIO
+    goto finish;
+  }
+  // Finally delete file/directory metadata.
+  err = sql_delete_metadata(sqlfs, ino);
+
+finish:
+  if (err == 0) {
+    sql_commit_transaction(sqlfs);
+  } else {
+    sql_rollback_transaction(sqlfs);
+  }
+  return err;
 }
