@@ -152,13 +152,15 @@ static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
     mode_t mode, dev_t rdev) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode), TRACE_UINT(rdev));
-  struct stat attr;
-  int err = sqlfs_mknod(fuse_req_userdata(req), parent, name, mode, &attr);
-  if (err == 0) {
-    fuse_reply_attr(req, &attr, 0.0 /* attr_timeout */);
-  } else {
-    reply_err(req, err);
+  struct fuse_entry_param entry;
+  memset(&entry, 0, sizeof(entry));
+  int err = sqlfs_mknod(fuse_req_userdata(req), parent, name, mode, &entry.attr);
+  if (err != 0) {
+    return reply_err(req, err);
   }
+  entry.ino = entry.attr.st_ino;
+  entry.generation = GENERATION;
+  return reply_entry(req, &entry);
 }
 
 static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode) {
