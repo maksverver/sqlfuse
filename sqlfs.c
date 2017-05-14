@@ -925,7 +925,7 @@ int sqlfs_unlink(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *ch
     goto finish;
   }
   // Decrease hardlink count.
-  err = sql_dec_nlink(sqlfs, dir_ino);
+  err = sql_dec_nlink(sqlfs, child_ino);
 
 finish:
   if (err == 0) {
