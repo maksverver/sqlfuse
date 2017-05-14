@@ -285,10 +285,87 @@ static void test_rmdir() {
   EXPECT_EQ(stat(dir_foo_baz, &st), -1);
   EXPECT_EQ(errno, ENOENT);
 
+  // Cannot rmdir() a file. Use unlink() instead.
+  EXPECT_EQ(mknod(dir_foo_bar, S_IFREG | 0600, 0), 0);
+  EXPECT_EQ(rmdir(dir_foo_bar), -1);
+  EXPECT_EQ(errno, ENOTDIR);
+
+  // Files do not increase parent directory's hardlink count...
+  EXPECT_EQ(nlinks(dir_foo), 2);
+
+  // ... but they do prevent them from being deleted.
+  EXPECT_EQ(rmdir(dir_foo), -1);
+  EXPECT_EQ(errno, ENOTEMPTY);
+
+  EXPECT_EQ(unlink(dir_foo_bar), 0);
   EXPECT_EQ(nlinks(dir_foo), 2);
   EXPECT_EQ(rmdir(dir_foo), 0);
 
   EXPECT_EQ(nlinks(mountpoint), 2);
+
+  teardown();
+}
+
+static void test_mknod_unlink() {
+  char buf[PATH_MAX];
+  struct stat st;
+
+  setup();
+
+  snprintf(buf, sizeof(buf), "%s/foo", mountpoint);
+  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), 0);
+  EXPECT_EQ(stat(buf, &st), 0);
+  EXPECT_EQ(st.st_ino, 2);
+  EXPECT_EQ(st.st_mode, S_IFREG | 0644);
+  EXPECT_EQ(st.st_nlink, 1);
+  EXPECT_EQ(st.st_size, 0);
+  EXPECT(st.st_blksize > 0);
+  EXPECT_EQ(st.st_blocks, 0);
+
+  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), -1);
+  EXPECT_EQ(errno, EEXIST);
+
+  // Invalid mode (symlinks not supportedy yet).
+  EXPECT_EQ(mknod(buf, S_IFLNK | 0644, 0), -1);
+  EXPECT_EQ(errno, EINVAL);
+
+  snprintf(buf, sizeof(buf), "%s/foo/bar", mountpoint);
+  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), -1);
+  EXPECT_EQ(errno, ENOTDIR);
+
+  snprintf(buf, sizeof(buf), "%s/nonexistent/foo", mountpoint);
+  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  snprintf(buf, sizeof(buf), "%s/.", mountpoint);
+  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), -1);
+  EXPECT_EQ(errno, EEXIST);
+
+  snprintf(buf, sizeof(buf), "%s/bar", mountpoint);
+  EXPECT_EQ(mknod(buf, S_IFREG | 0777, 0), 0);
+  EXPECT_EQ(stat(buf, &st), 0);
+  EXPECT_EQ(st.st_ino, 3);
+  EXPECT_EQ(st.st_mode, S_IFREG | 0755);  // umask was applied
+  EXPECT_EQ(st.st_nlink, 1);
+
+  snprintf(buf, sizeof(buf), "%s/foo", mountpoint);
+  EXPECT_EQ(unlink(buf), 0);
+
+  EXPECT_EQ(unlink(buf), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  // Can't unlink a directory. Use rmdir() instead.
+  EXPECT_EQ(mkdir(buf, 0775), 0);
+  EXPECT_EQ(unlink(buf), -1);
+  EXPECT_EQ(errno, EISDIR);
+  EXPECT_EQ(rmdir(buf), 0);
+
+  snprintf(buf, sizeof(buf), "%s/baz", mountpoint);
+  EXPECT_EQ(mknod(buf, S_IFREG | 0600, 0), 0);
+
+  // TODO: readdir to verify directory contains /bar, /baz
+  // TODO: Maybe add test for mknodat? What happens if parent dir is already deleted?
+  // TODO: Maybe add test for unlinkat? What happens if parent dir is already deleted?
 
   teardown();
 }
@@ -299,6 +376,7 @@ static const struct test_case tests[] = {
   TEST(rootdir),
   TEST(mkdir),
   TEST(rmdir),
+  TEST(mknod_unlink),
 #undef TEST
   {NULL, NULL}};
 
