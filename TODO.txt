@@ -1,5 +1,4 @@
 Next:
-  - Add tests for opendir()/readdir()/closedir()!
   - Fix hardlink counting of directories: we should not count the self-link
     in the nlink column of the metadata table. This way, an empty directory
     has nlink == 0, which allows us to easily garbage collect it (similar to
@@ -30,6 +29,12 @@ Things to test:
   - open read-only database file (read operations should still succeed,
     write operations should fail gracefully, without crashing)
   - sqlfs tests with encryption (no setup/teardown)
+  - sqlfuse: parallel reading from two directories / one directory opened twice
+    (this only makes sense to test with very large directories otherwise the
+     entire directory is probably read into one buffer?)
+  - Add unit tests on the sqlfs level:
+      - opendir()/readdir()/closedir()
+
 
 TBD:
   - what should the uid/gid/mode of the root directory be?
