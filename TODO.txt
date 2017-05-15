@@ -1,8 +1,4 @@
 Next:
-  - Fix hardlink counting of directories: we should not count the self-link
-    in the nlink column of the metadata table. This way, an empty directory
-    has nlink == 0, which allows us to easily garbage collect it (similar to
-    unlinked files).
   - Test if other filesystems support creating files/subdirectories in unlinked
     directories (using unlink()/createnodat()?). How should I handle that case?
   - open()/close() of files

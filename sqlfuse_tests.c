@@ -351,6 +351,8 @@ static void test_mknod_unlink() {
 
   snprintf(buf, sizeof(buf), "%s/foo", mountpoint);
   EXPECT_EQ(unlink(buf), 0);
+  EXPECT_EQ(stat(buf, &st), -1);
+  EXPECT_EQ(errno, ENOENT);
 
   EXPECT_EQ(unlink(buf), -1);
   EXPECT_EQ(errno, ENOENT);
@@ -419,7 +421,7 @@ static void verify_directory_contents(const char *path, struct dirent expected_e
   closedir(dir);
 }
 
-static void test_readdir_basic() {
+static void test_readdir() {
   char buf[PATH_MAX];
 
   setup();
@@ -485,7 +487,7 @@ static const struct test_case tests[] = {
   TEST(mkdir),
   TEST(rmdir),
   TEST(mknod_unlink),
-  TEST(readdir_basic),
+  TEST(readdir),
 #undef TEST
   {NULL, NULL}};
 

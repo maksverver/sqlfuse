@@ -289,7 +289,7 @@ static void create_root_directory(struct sqlfs *sqlfs) {
   CHECK(prepare(sqlfs->db, "INSERT INTO metadata(ino, mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?, ?)", &stmt));
   CHECK(sqlite3_bind_int64(stmt, 1, ROOT_INO) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 2, mode) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 3, 2) == SQLITE_OK);  // nlink
+  CHECK(sqlite3_bind_int64(stmt, 3, 1) == SQLITE_OK);  // nlink
   CHECK(sqlite3_bind_int64(stmt, 4, sqlfs->uid) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 5, sqlfs->gid) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 6, current_time_nanos()) == SQLITE_OK);
@@ -308,8 +308,9 @@ static void create_root_directory(struct sqlfs *sqlfs) {
 static void fill_stat(sqlite3_stmt *stmt, struct stat *stat) {
   memset(stat, 0, sizeof(*stat));
   stat->st_ino = sqlite3_column_int64(stmt, COL_STAT_INO);
-  stat->st_mode = sqlite3_column_int64(stmt, COL_STAT_MODE);
-  stat->st_nlink = sqlite3_column_int64(stmt, COL_STAT_NLINK);
+  const mode_t mode = sqlite3_column_int64(stmt, COL_STAT_MODE);
+  stat->st_mode = mode;
+  stat->st_nlink = sqlite3_column_int64(stmt, COL_STAT_NLINK) + S_ISDIR(mode);
   stat->st_uid = sqlite3_column_int64(stmt, COL_STAT_UID);
   stat->st_gid = sqlite3_column_int64(stmt, COL_STAT_GID);
   // stat->st_rdev is kept zero.
@@ -363,7 +364,7 @@ static int sql_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_
 static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, struct stat *stat) {
   memset(stat, 0, sizeof(*stat));
   stat->st_mode = mode;
-  stat->st_nlink = nlink;
+  stat->st_nlink = nlink + S_ISDIR(mode);
   stat->st_uid = sqlfs->uid;
   stat->st_gid = sqlfs->gid;
   stat->st_blksize = BLKSIZE;
@@ -727,7 +728,7 @@ int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
     goto finish;
   }
   mode = (mode & 0777 & ~sqlfs->umask) | S_IFDIR;
-  err = sql_insert_metadata(sqlfs, mode, 2 /*  nlink */, stat);
+  err = sql_insert_metadata(sqlfs, mode, 1 /* nlink */, stat);
   if (err != 0) {
     goto finish;
   }
@@ -906,7 +907,7 @@ int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
     goto finish;
   }
   // Create file inode.
-  err = sql_insert_metadata(sqlfs, mode, 1 /*  nlink */, stat);
+  err = sql_insert_metadata(sqlfs, mode, 1 /* nlink */, stat);
   if (err != 0) {
     goto finish;
   }
@@ -938,7 +939,8 @@ int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino) {
     goto finish;
   }
 
-  // FIXME: directory should not have hardlink count of 1 here.
+  // For directories, stat() also counts the "." entry as a link, but if that's
+  // the only link to a directory, it is not reachable and should be purged.
   if (stat.st_nlink > (S_ISDIR(stat.st_mode) ? 1 : 0)) {
     // Not ready to be purged yet. Return success immediately.
     err = 0;

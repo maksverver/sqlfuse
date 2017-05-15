@@ -7,12 +7,21 @@ SQL_STATEMENT(
   // Since the ino column is not an AUTOINCREMENT column, ino numbers may be
   // reused over the lifetime of the database.
   //
-  // Mode indicates the file type and permissions. The only supported file types
+  // mode indicates the file type and permissions. The only supported file types
   // are regular files (S_IFREG) and directories (S_IFDIR).
+  //
+  // nlink indicates the number of hardlinks. This is 0 for unreachable files/
+  // directories that should be purged. Files have 1 link for every directory
+  // they are linked from. Directories also have 1 link for every subdirectory
+  // (each of which has a ".." entry that links to the parent directory). Note
+  // that the nlink column here doesn't count the directory's self link (the
+  // "." entry), so for directories, the nlink column is 1 less than the value
+  // returned by stat(). This simplifies efficient garbage collection through
+  // the partial index on nlink = 0 (see below).
   CREATE TABLE metadata(
     ino INTEGER PRIMARY KEY NOT NULL,  // must be positive. 1 means root.
     mode INTEGER NOT NULL,
-    nlink INTEGER NOT NULL,  // for directories: number of subdirectories + 2
+    nlink INTEGER NOT NULL,
     uid INTEGER NOT NULL,
     gid INTEGER NOT NULL,
     size INTEGER,  // size of file; NULL for directories
