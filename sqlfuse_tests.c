@@ -9,6 +9,7 @@
 // directory root to use instead of /tmp.
 
 #include <assert.h>
+#include <dirent.h>
 #include <errno.h>
 #include <pthread.h>
 #include <signal.h>
@@ -378,6 +379,105 @@ static void test_mknod_unlink() {
   teardown();
 }
 
+static void verify_directory_contents(const char *path, struct dirent expected_entries[], int expected_size) {
+  char buf[PATH_MAX];
+  snprintf(buf, sizeof(buf), "%s/%s", mountpoint, path);
+
+  DIR *dir = opendir(buf);
+  struct dirent de, *de_ptr = NULL;
+  if (dir == NULL) {
+    fprintf(stderr, "Couldn't open directory [%s]!\n", buf);
+    test_fail();
+    return;
+  }
+  for (int i = 0; i < expected_size; ++i) {
+    EXPECT_EQ(readdir_r(dir, &de, &de_ptr), 0);
+    if (de_ptr == NULL) {
+      fprintf(stderr, "Premature end of directory [%s] (after %d entries)\n", buf, i);
+      closedir(dir);
+      return;
+    }
+    EXPECT(de_ptr == &de);
+    if (expected_entries[i].d_ino != de.d_ino) {
+      fprintf(stderr, "Entry %d in %s: expected ino %lld, read ino %lld\n",
+          i, buf, (long long)expected_entries[i].d_ino, (long long)de.d_ino);
+      test_fail();
+    }
+    if (strcmp(expected_entries[i].d_name, de.d_name) != 0) {
+      fprintf(stderr, "Entry %d in %s: expected name [%s], read name [%s]\n",
+          i, buf, expected_entries[i].d_name, de.d_name);
+      test_fail();
+    }
+    if (expected_entries[i].d_type != de.d_type) {
+      fprintf(stderr, "Entry %d in %s: expected type %d, read type %d\n",
+          i, buf, (int)expected_entries[i].d_type, (int)de.d_type);
+      test_fail();
+    }
+  }
+  EXPECT_EQ(readdir_r(dir, &de, &de_ptr), 0);
+  EXPECT(de_ptr == NULL);
+  closedir(dir);
+}
+
+static void test_readdir_basic() {
+  char buf[PATH_MAX];
+
+  setup();
+
+  // ino path
+  //  1  /
+  //  2  /dir
+  //  3  /dir/sub
+  //  4  /dir/file1
+  //  5  /dir/file2
+  //  6  /dir/.-
+
+  snprintf(buf, sizeof(buf), "%s/dir", mountpoint);
+  mkdir(buf, 0700);
+  snprintf(buf, sizeof(buf), "%s/dir/sub", mountpoint);
+  mkdir(buf, 0700);
+  snprintf(buf, sizeof(buf), "%s/dir/file1", mountpoint);
+  mknod(buf, 0600, 0);
+  snprintf(buf, sizeof(buf), "%s/dir/file2", mountpoint);
+  mknod(buf, 0600, 0);
+  snprintf(buf, sizeof(buf), "%s/dir/.-", mountpoint);
+  mknod(buf, 0600, 0);
+
+  snprintf(buf, sizeof(buf), "%s/nonexistent", mountpoint);
+  EXPECT(opendir("/nonexistent") == NULL);
+  EXPECT_EQ(errno, ENOENT);
+
+  // read root
+  struct dirent root_entries[3] = {
+    { .d_ino = 1, .d_name = ".", .d_type = DT_DIR },
+    { .d_ino = 1, .d_name = "..", .d_type = DT_DIR },
+    { .d_ino = 2, .d_name = "dir", .d_type = DT_DIR }};
+  verify_directory_contents("", root_entries, 3);
+  verify_directory_contents(".", root_entries, 3);
+
+  // read empty subdir
+  struct dirent sub_entries[2] = {
+    { .d_ino = 3, .d_name = ".", .d_type = DT_DIR },
+    { .d_ino = 2, .d_name = "..", .d_type = DT_DIR }};
+  verify_directory_contents("dir/sub", sub_entries, 2);
+
+  // read non-empty dir
+  struct dirent dir_entries[6] = {
+    { .d_ino = 2, .d_name = ".", .d_type = DT_DIR },
+    { .d_ino = 1, .d_name = "..", .d_type = DT_DIR },
+    // Note that ".-" is lexicographically less tha "..", but "." and ".." are
+    // always the first and second entry.
+    { .d_ino = 6, .d_name = ".-", .d_type = DT_REG },
+    { .d_ino = 4, .d_name = "file1", .d_type = DT_REG },
+    { .d_ino = 5, .d_name = "file2", .d_type = DT_REG },
+    { .d_ino = 3, .d_name = "sub", .d_type = DT_DIR }};
+  verify_directory_contents("dir", dir_entries, 6);
+
+  // TODO: add a test for fdopendir?
+
+  teardown();
+}
+
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
@@ -385,6 +485,7 @@ static const struct test_case tests[] = {
   TEST(mkdir),
   TEST(rmdir),
   TEST(mknod_unlink),
+  TEST(readdir_basic),
 #undef TEST
   {NULL, NULL}};
 
