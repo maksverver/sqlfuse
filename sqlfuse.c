@@ -180,7 +180,36 @@ static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
     int to_set, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_INT(to_set));
-  REPLY_ERR(req, ENOSYS);
+
+  // Under very specific conditions, fi->fh would contain an open file handle
+  // (see fuse_lowlevel.h for details). We assume it's NULL, and don't use it.
+  (void)fi;
+
+  unsigned sqlfs_to_set = 0;
+  if (to_set & FUSE_SET_ATTR_MODE) {
+    sqlfs_to_set |= SQLFS_SET_ATTR_MODE;
+  }
+  if (to_set & FUSE_SET_ATTR_UID) {
+    sqlfs_to_set |= SQLFS_SET_ATTR_UID;
+  }
+  if (to_set & FUSE_SET_ATTR_GID) {
+    sqlfs_to_set |= SQLFS_SET_ATTR_GID;
+  }
+  if (to_set & FUSE_SET_ATTR_SIZE) {
+    sqlfs_to_set |= SQLFS_SET_ATTR_SIZE;
+  }
+  if (to_set & FUSE_SET_ATTR_MTIME) {
+    sqlfs_to_set |= SQLFS_SET_ATTR_MTIME;
+  }
+  // Note: FUSE_SET_ATTR_ATIME will be ignored.
+
+  struct stat new_attr;
+  int err = sqlfs_set_attr(fuse_req_userdata(req), ino, attr, sqlfs_to_set, &new_attr);
+  if (err == 0) {
+    REPLY_ATTR(req, &new_attr);
+  } else {
+    REPLY_ERR(req, err);
+  }
 }
 
 static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,

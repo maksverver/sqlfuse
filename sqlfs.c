@@ -969,3 +969,44 @@ finish:
   }
   return err;
 }
+
+int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, unsigned to_set, struct stat *attr_out) {
+
+  CHECK(attr_in != attr_out);
+  memset(attr_out, 0, sizeof(*attr_out));
+
+  if (to_set != (to_set & SQLFS_SET_ATTR_ALL)) {
+    // Unknown flags passed in `to_set`.
+    LOG("[%s:%d] %s() to_set=%u\n", __FILE__, __LINE__, __func__, to_set);
+    return EINVAL;
+  }
+
+  if (to_set & SQLFS_SET_ATTR_MTIME) {
+    // TODO: check if value is in range! Otherwise clip?
+  }
+
+  // TODO: start transaction
+  // TODO: get current attributes in attr_out
+  // TODO: return ENOENT if not found
+
+  if (to_set & SQLFS_SET_ATTR_MODE) {
+    // TODO: update mode
+    // restrict to file permission bits 0777.
+  }
+  if (to_set & SQLFS_SET_ATTR_UID) {
+    // TODO: update uid
+  }
+  if (to_set & SQLFS_SET_ATTR_GID) {
+    // TODO: update gid
+  }
+  if (to_set & SQLFS_SET_ATTR_MTIME) {
+    // TODO: update mtime!
+  }
+  if (to_set & SQLFS_SET_ATTR_SIZE) {
+    // TODO: update size. If changed, truncate/extend allocated size.
+    // TODO: check that type == regular file!
+  }
+  // TODO: skip next step if nothing changed
+  // TODO: write metadata
+  // TODO: commit transaction
+}

@@ -169,4 +169,35 @@ int sqlfs_unlink(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *ch
 //  EIO if a database operation failed
 int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino);
 
+// Attribute flags for use with sqlfs_set_attr() (see below).
+#define SQLFS_SET_ATTR_MODE  (1 << 0)
+#define SQLFS_SET_ATTR_UID   (1 << 1)
+#define SQLFS_SET_ATTR_GID   (1 << 2)
+#define SQLFS_SET_ATTR_MTIME (1 << 3)
+#define SQLFS_SET_ATTR_SIZE  (1 << 4)
+#define SQLFS_SET_ATTR_ALL   ((1 << 5) - 1)
+
+// Changes the metadata for the given inode. The to_set bitmask must contain
+// a combination of SQLFS_SET_ATTR_*-flags that indicate which fields in attr_in
+// to apply.
+//
+// On success, the complete set of attributes is written to *attr_out (i.e.,
+// including the old values of fields that weren't changed).
+//
+// Restrictions on fields:
+//
+//   - attr->st_mode: only the permission bits of the mode field can be changed.
+//   - attr->st_size: changing the size results in truncation (if smaller than
+//     the current size) or eager allocation (if greater than the current size).
+//     Newly allocated bytes are set to zero (sparse files are not supported).
+//     Only regular files can have their size changed.
+//   - attr->st_time: time must be in range (TODO: determine valid range)
+//
+// Returns:
+//  0 on success
+//  EINVAL if to_set contains invalid flags, or one of the fields is invalid.
+//  ENOENT if the inode does not exist.
+//  EIO if a database operation failed.
+int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, unsigned to_set, struct stat *attr_out);
+
 #endif
