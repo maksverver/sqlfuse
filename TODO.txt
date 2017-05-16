@@ -1,12 +1,13 @@
 Next:
+  - sqlfuse_setattr() (includes truncation!)
+  - sqlfuse_rename()
+  - sqlfuse_open()/sqlfuse_release() to open/close files
+  - sqlfuse_read()/sqlfuse_write() to read/write files
+  - Lookup accounting!!! + sqlfuse_forget()
   - Test if other filesystems support creating files/subdirectories in unlinked
     directories (using unlink()/createnodat()?). How should I handle that case?
-  - open()/close() of files
-  - read()/write() of files
-  - truncate() of files.
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
   - test unlinking of open files, and reading/writing from them
-  - Lookup accounting!!!
   - Delete unlinked files/directories at startup. (Note: should also delete
     file/directory contents!)
   - sqlfs.c: Maybe: separate functions to create/open existing database?
@@ -30,7 +31,7 @@ Things to test:
      entire directory is probably read into one buffer?)
   - Add unit tests on the sqlfs level:
       - opendir()/readdir()/closedir()
-
+  - test on 32-bit ARM -- check that binary format is compatible!
 
 TBD:
   - what should the uid/gid/mode of the root directory be?
@@ -48,6 +49,12 @@ Decisions to document somewhere:
     continuation token (and "SELECT ... WHERE name >= next_name", instead of
     "WHERE name > last_name") to avoid having to copy strings in
     sqlfuse_readdir() to remember the last entry name.
+  - All write operations commit to the database, so there is no need to flush()
+    or sync() anything.
+  - Sparse files are currently not supported. Maybe later!
+  - Permission bits sticky/setuid/setgid (mask 07000) are currently not
+    supported. Maybe later! (Careful: we should clear setuid/setgid bits when
+    the owner/group of a file is changed.)
 
 General TODO:
   - create a README with some information and usage notes.

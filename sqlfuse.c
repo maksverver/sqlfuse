@@ -16,9 +16,6 @@
 // any inode numbers. That means the file system cannot safely be used over NFS!
 #define GENERATION 1
 
-// Temporary! TODO: Remove this once the sqlfuse_* functions are implemented.
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-
 // Describes an open directory handle.
 //
 // In the beginning (i.e. immediately after a call to sqlfuse_opendir()):
@@ -84,10 +81,12 @@ static void trace_str(FILE *fp, const char *key, const char *value) {
 
 static void sqlfuse_init(void *userdata, struct fuse_conn_info *conn) {
   TRACE();
+  (void)userdata, (void)conn;  // Unused.
 }
 
 static void sqlfuse_destroy(void *userdata) {
   TRACE();
+  (void)userdata;  // Unused.
 }
 
 #define REPLY_NONE(req) reply_none(__FILE__, __LINE__, __func__, req)
@@ -162,13 +161,14 @@ static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) 
 }
 
 static void sqlfuse_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup) {
+  // TODO: implement this!
   TRACE(TRACE_UINT(ino), TRACE_UINT(nlookup));
   REPLY_NONE(req);
 }
 
 static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino));
-
+  (void)fi;  // Unused. (Reserved by FUSE for future use. Should be NULL, now.)
   struct stat attr;
   int err = sqlfs_stat(fuse_req_userdata(req), ino, &attr);
   if (err != 0) {
@@ -267,28 +267,38 @@ static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
 static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     fuse_ino_t newparent, const char *newname) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(newparent), TRACE_STR(newname));
+  // TODO: implement this!
   REPLY_ERR(req, ENOSYS);
 }
 
 static void sqlfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino));
+  (void)fi;  // Currently unused. Note: contains open() flags! See FUSE header.
+  // TODO: implement this!
   REPLY_ERR(req, ENOSYS);
 }
 
 static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
+  (void)fi;  // Currenty unused. fi->fh contains file handle set by sqlfuse_open().
+  // TODO: implement this.
   REPLY_ERR(req, ENOSYS);
 }
 
 static void sqlfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
     size_t size, off_t off, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
+  (void)buf;  // Currently unused! TODO: use this.
+  (void)fi;  // Currently unused. fi->fh contains file handle set by sqlfuse_open().
+  // TODO: implement this.
   REPLY_ERR(req, ENOSYS);
 }
 
 static void sqlfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino));
+  (void)fi;  // Currently unused. fi->fh contains file handle set by sqlfuse_open().
+  // TODO: implement this.
   REPLY_ERR(req, ENOSYS);
 }
 
