@@ -1,8 +1,8 @@
 Next:
-  - sqlfuse_setattr() (includes truncation!)
-  - sqlfuse_rename()
   - sqlfuse_open()/sqlfuse_release() to open/close files
   - sqlfuse_read()/sqlfuse_write() to read/write files
+  - finish truncation in sqlfs_set_attr() and then finish test_truncate()!
+  - sqlfuse_rename()
   - Lookup accounting!!! + sqlfuse_forget()
   - Test if other filesystems support creating files/subdirectories in unlinked
     directories (using unlink()/createnodat()?). How should I handle that case?
@@ -55,6 +55,8 @@ Decisions to document somewhere:
   - Permission bits sticky/setuid/setgid (mask 07000) are currently not
     supported. Maybe later! (Careful: we should clear setuid/setgid bits when
     the owner/group of a file is changed.)
+  - No tests for setuid()/setgid() because that (probaby?) requires root
+    privileges.
 
 General TODO:
   - create a README with some information and usage notes.

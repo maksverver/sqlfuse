@@ -276,7 +276,7 @@ static int64_t timespec_to_nanos(const struct timespec *tp) {
     }
   } else {  // tp->tv_sec < 0
     if (tp->tv_sec < INT64_MIN/NANOS_PER_SECOND ||
-      INT64_MIN - (int64_t)tp->tv_sec * NANOS_PER_SECOND > tp->tv_nsec) {
+        INT64_MIN - (int64_t)tp->tv_sec * NANOS_PER_SECOND > tp->tv_nsec) {
       return INT64_MIN;
     }
   }
@@ -431,6 +431,7 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
 //  EIO if writing to the database failed
 static int sql_update_metadata(struct sqlfs *sqlfs, const struct stat *stat) {
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_UPDATE_METADATA];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_INO, stat->st_ino) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_MODE, stat->st_mode) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_UID, stat->st_uid) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_GID, stat->st_gid) == SQLITE_OK);
@@ -438,7 +439,6 @@ static int sql_update_metadata(struct sqlfs *sqlfs, const struct stat *stat) {
   if (!S_ISDIR(stat->st_mode)) {
     CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_SIZE, stat->st_size) == SQLITE_OK);
   }
-  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_INO, stat->st_mode) == SQLITE_OK);
 
   int err = 0;
   int status = sqlite3_step(stmt);
@@ -1042,32 +1042,60 @@ int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, u
     return EINVAL;
   }
 
-  if (to_set & SQLFS_SET_ATTR_MTIME) {
-    // TODO: check if value is in range! Otherwise clip?
-  }
+  sql_begin_transaction(sqlfs);
 
-  // TODO: start transaction
-  // TODO: get current attributes in attr_out
-  // TODO: return ENOENT if not found
+  int err = sqlfs_stat(sqlfs, ino, attr_out);
+  if (err != 0) {
+    goto failure;
+  }
 
   if (to_set & SQLFS_SET_ATTR_MODE) {
-    // TODO: update mode
-    // restrict to file permission bits 0777.
+    // We only allow basic permission bits to be set. This excludes the sticky/
+    // suid/sgid bits (07000).
+    attr_out->st_mode = (attr_out->st_mode & ~0777) | (attr_in->st_mode & 0777);
   }
   if (to_set & SQLFS_SET_ATTR_UID) {
-    // TODO: update uid
+    attr_out->st_uid = attr_in->st_uid;
   }
   if (to_set & SQLFS_SET_ATTR_GID) {
-    // TODO: update gid
+    attr_out->st_gid = attr_in->st_gid;
   }
   if (to_set & SQLFS_SET_ATTR_MTIME) {
-    // TODO: update mtime!
+    // Convert to nanos and back, to guarantee the result is clamped in range.
+    attr_out->st_mtim = nanos_to_timespec(timespec_to_nanos(&attr_in->st_mtim));
   }
   if (to_set & SQLFS_SET_ATTR_SIZE) {
+    if (S_ISDIR(attr_out->st_mode)) {
+      err = EISDIR;
+      goto failure;
+    }
+    if (!S_ISREG(attr_out->st_mode)) {
+      err = EINVAL;
+      goto failure;
+    }
+    if (attr_out->st_size < 0) {
+      err = EINVAL;
+      goto failure;
+    }
+    if (!(to_set & SQLFS_SET_ATTR_MTIME)) {
+      attr_out->st_mtim = current_timespec();
+    }
     // TODO: update size. If changed, truncate/extend allocated size.
-    // TODO: check that type == regular file!
   }
-  // TODO: skip next step if nothing changed
-  // TODO: write metadata
-  // TODO: commit transaction
+
+  if (to_set != 0) {
+    err = sql_update_metadata(sqlfs, attr_out);
+    if (err != 0) {
+      goto failure;
+    }
+  }
+
+  CHECK(err == 0);
+  sql_commit_transaction(sqlfs);
+  return 0;
+
+failure:
+  CHECK(err != 0);
+  sql_rollback_transaction(sqlfs);
+  return err;
 }

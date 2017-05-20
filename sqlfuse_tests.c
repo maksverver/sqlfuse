@@ -494,6 +494,119 @@ static void test_readdir() {
   teardown();
 }
 
+static void test_chmod() {
+  struct stat st = {0};
+  setup();
+
+  const char *const path_foo = makepath("foo");
+  const char *const path_bar = makepath("bar");
+
+  EXPECT_EQ(mknod(path_foo, 0644, 0), 0);
+  EXPECT_EQ(mknod(path_bar, 0644, 0), 0);
+
+  EXPECT_EQ(chmod(makepath("nonexistent"), 0644), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  EXPECT_EQ(chmod(path_foo, 0000), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  EXPECT_EQ(st.st_mode, S_IFREG | 0000);
+
+  EXPECT_EQ(chmod(path_foo, 0123), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  EXPECT_EQ(st.st_mode, S_IFREG | 0123);
+
+  // Only basic permission bits are affected.
+  EXPECT_EQ(chmod(path_foo, 07777), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  EXPECT_EQ(st.st_mode, S_IFREG | 0777);
+
+  // Unrelated file is unaffected.
+  EXPECT_EQ(stat(path_bar, &st), 0);
+  EXPECT_EQ(st.st_mode, S_IFREG | 0644);
+
+  // TODO: add a test for fchmod()/fchmodat()?
+
+  teardown();
+}
+
+static void test_utime() {
+  setup();
+
+  struct stat st;
+
+  const char * const path_foo = makepath("foo");
+  EXPECT_EQ(mknod(path_foo, 0644, 0), 0);
+
+  struct utimbuf utimbuf = { .actime = 12345, .modtime = 4567 };
+  EXPECT_EQ(utime(path_foo, &utimbuf), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  // The actime field is ignored. All timestamps are set to modtime.
+  EXPECT_EQ(st.st_atime, 4567);
+  EXPECT_EQ(st.st_ctime, 4567);
+  EXPECT_EQ(st.st_mtime, 4567);
+
+  time_t now = time(NULL);
+  utimbuf.modtime = now;
+  EXPECT_EQ(utime(path_foo, &utimbuf), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  EXPECT(st.st_mtime >= now && st.st_mtime <= now + 10);
+
+  // There is a variety of similar functions with different resolution:
+  //  utime, utimes, futimes futimesat, utimensat
+  // Probably not worth testing all of those separately, since either libc or
+  // libfuse maps them onto the same implementation.
+
+  teardown();
+}
+
+static void test_truncate() {
+  setup();
+
+  struct stat st;
+
+  const char *const path_foo = makepath("foo");
+
+  // Can only truncate regular files.
+  EXPECT_EQ(truncate(path_foo, 0), -1);
+  EXPECT_EQ(errno, ENOENT);
+  EXPECT_EQ(mkdir(path_foo, 0700), 0);
+  EXPECT_EQ(truncate(path_foo, 0), -1);
+  EXPECT_EQ(errno, EISDIR);
+  EXPECT_EQ(rmdir(path_foo), 0);
+  EXPECT_EQ(mknod(path_foo, 0644, 0), 0);
+
+  EXPECT_EQ(truncate(path_foo, 5000), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  // If the blocksize changes, updated this test.
+  EXPECT_EQ(st.st_blksize, 4096);
+  EXPECT_EQ(st.st_size, 5000);
+  // TODO: read file contents, check it's all 0
+
+  // TODO: fill with a's
+
+  EXPECT_EQ(truncate(path_foo, 2500), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  EXPECT_EQ(st.st_size, 2500);
+
+  EXPECT_EQ(truncate(path_foo, 6000), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  EXPECT_EQ(st.st_size, 6000);
+
+  // TODO: check that file contains 2500 a's followed by 3500 0's
+
+  EXPECT_EQ(truncate(path_foo, 0), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
+  EXPECT_EQ(st.st_size, 0);
+
+  // TODO: check that file is empty when read.
+
+  // TODO: add a test for ftruncate?
+
+  // TOOD: add a test to verify that mtime is updated to the current time.
+
+  teardown();
+}
+
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
@@ -502,6 +615,9 @@ static const struct test_case tests[] = {
   TEST(rmdir),
   TEST(mknod_unlink),
   TEST(readdir),
+  TEST(chmod),
+  TEST(utime),
+  TEST(truncate),
 #undef TEST
   {NULL, NULL}};
 
