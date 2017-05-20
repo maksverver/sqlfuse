@@ -250,16 +250,14 @@ static nlink_t nlinks(const char *path) {
 }
 
 static void test_mkdir() {
-  char buf[PATH_MAX];
-
   setup();
 
   EXPECT_EQ(nlinks(mountpoint), 2);
 
-  snprintf(buf, sizeof(buf), "%s/subdir", mountpoint);
-  EXPECT_EQ(mkdir(buf, 0770), 0);
+  char *subdir = makepath("subdir");
+  EXPECT_EQ(mkdir(subdir, 0770), 0);
   struct stat st = {0};
-  EXPECT_EQ(stat(buf, &st), 0);
+  EXPECT_EQ(stat(subdir, &st), 0);
   EXPECT_EQ(st.st_mode, 0750 | S_IFDIR);  // umask has been applied
   EXPECT_EQ(st.st_nlink, 2);
 
@@ -267,12 +265,11 @@ static void test_mkdir() {
   EXPECT_EQ(nlinks(mountpoint), 3);
 
   // Cannot recreate directory that already exists.
-  EXPECT_EQ(mkdir(buf, 0755), -1);
+  EXPECT_EQ(mkdir(subdir, 0755), -1);
   EXPECT_EQ(errno, EEXIST);
 
   // Cannot create child directory in non-existent parent directory
-  snprintf(buf, sizeof(buf), "%s/nonexistent/subdir", mountpoint);
-  EXPECT_EQ(mkdir(buf, 0770), -1);
+  EXPECT_EQ(mkdir(makepath("nonexistent/subdir"), 0770), -1);
   EXPECT_EQ(errno, ENOENT);
 
   // TODO: Maybe add test for mkdirat? What happens if parent dir is already deleted?
@@ -282,61 +279,58 @@ static void test_mkdir() {
 
 static void test_rmdir() {
   struct stat st;
-  char dir_foo[PATH_MAX];
-  char dir_foo_bar[PATH_MAX];
-  char dir_foo_baz[PATH_MAX];
-
-  snprintf(dir_foo, sizeof(dir_foo), "%s/foo", mountpoint);
-  snprintf(dir_foo_bar, sizeof(dir_foo_bar), "%s/foo/bar", mountpoint);
-  snprintf(dir_foo_baz, sizeof(dir_foo_baz), "%s/foo/baz", mountpoint);
 
   setup();
 
-  EXPECT_EQ(rmdir(dir_foo), -1);
+  char *path_foo = makepath("foo");
+  char *path_foo_bar = makepath("foo/bar");
+  char *path_foo_baz = makepath("foo/baz");
+
+  EXPECT_EQ(rmdir(path_foo), -1);
   EXPECT_EQ(errno, ENOENT);
 
-  EXPECT_EQ(rmdir(dir_foo_bar), -1);
+  EXPECT_EQ(rmdir(path_foo_bar), -1);
   EXPECT_EQ(errno, ENOENT);
 
-  EXPECT_EQ(mkdir(dir_foo, 0700), 0);
-  EXPECT_EQ(mkdir(dir_foo_bar, 0700), 0);
-  EXPECT_EQ(mkdir(dir_foo_baz, 0700), 0);
+  EXPECT_EQ(mkdir(path_foo, 0700), 0);
+  EXPECT_EQ(mkdir(path_foo_bar, 0700), 0);
+  EXPECT_EQ(mkdir(path_foo_baz, 0700), 0);
 
   EXPECT_EQ(nlinks(mountpoint),  3); // ".", "..", "foo"
-  EXPECT_EQ(nlinks(dir_foo),     4); // "../foo", ".", "bar/..", "baz/.."
-  EXPECT_EQ(nlinks(dir_foo_bar), 2); // ".", "../bar"
-  EXPECT_EQ(nlinks(dir_foo_bar), 2); // ".", "../baz"
+  EXPECT_EQ(nlinks(path_foo),     4); // "../foo", ".", "bar/..", "baz/.."
+  EXPECT_EQ(nlinks(path_foo_bar), 2); // ".", "../bar"
+  EXPECT_EQ(nlinks(path_foo_bar), 2); // ".", "../baz"
 
-  EXPECT_EQ(rmdir(dir_foo), -1);
+  EXPECT_EQ(rmdir(path_foo), -1);
   EXPECT_EQ(errno, ENOTEMPTY);
 
-  EXPECT_EQ(rmdir(dir_foo_bar), 0);
-  EXPECT_EQ(stat(dir_foo_bar, &st), -1);
+  EXPECT_EQ(rmdir(path_foo_bar), 0);
+  EXPECT_EQ(stat(path_foo_bar, &st), -1);
   EXPECT_EQ(errno, ENOENT);
 
-  EXPECT_EQ(nlinks(dir_foo), 3);
-  EXPECT_EQ(rmdir(dir_foo), -1);
+  EXPECT_EQ(nlinks(path_foo), 3);
+  EXPECT_EQ(rmdir(path_foo), -1);
   EXPECT_EQ(errno, ENOTEMPTY);
 
-  EXPECT_EQ(rmdir(dir_foo_baz), 0);
-  EXPECT_EQ(stat(dir_foo_baz, &st), -1);
+  EXPECT_EQ(rmdir(path_foo_baz), 0);
+  EXPECT_EQ(stat(path_foo_baz, &st), -1);
   EXPECT_EQ(errno, ENOENT);
 
   // Cannot rmdir() a file. Use unlink() instead.
-  EXPECT_EQ(mknod(dir_foo_bar, S_IFREG | 0600, 0), 0);
-  EXPECT_EQ(rmdir(dir_foo_bar), -1);
+  EXPECT_EQ(mknod(path_foo_bar, S_IFREG | 0600, 0), 0);
+  EXPECT_EQ(rmdir(path_foo_bar), -1);
   EXPECT_EQ(errno, ENOTDIR);
 
   // Files do not increase parent directory's hardlink count...
-  EXPECT_EQ(nlinks(dir_foo), 2);
+  EXPECT_EQ(nlinks(path_foo), 2);
 
   // ... but they do prevent them from being deleted.
-  EXPECT_EQ(rmdir(dir_foo), -1);
+  EXPECT_EQ(rmdir(path_foo), -1);
   EXPECT_EQ(errno, ENOTEMPTY);
 
-  EXPECT_EQ(unlink(dir_foo_bar), 0);
-  EXPECT_EQ(nlinks(dir_foo), 2);
-  EXPECT_EQ(rmdir(dir_foo), 0);
+  EXPECT_EQ(unlink(path_foo_bar), 0);
+  EXPECT_EQ(nlinks(path_foo), 2);
+  EXPECT_EQ(rmdir(path_foo), 0);
 
   EXPECT_EQ(nlinks(mountpoint), 2);
 
@@ -344,14 +338,16 @@ static void test_rmdir() {
 }
 
 static void test_mknod_unlink() {
-  char buf[PATH_MAX];
   struct stat st;
 
   setup();
 
-  snprintf(buf, sizeof(buf), "%s/foo", mountpoint);
-  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), 0);
-  EXPECT_EQ(stat(buf, &st), 0);
+  const char *const path_foo = makepath("foo");
+  const char *const path_bar = makepath("bar");
+  const char *const path_baz = makepath("baz");
+
+  EXPECT_EQ(mknod(path_foo, S_IFREG | 0644, 0), 0);
+  EXPECT_EQ(stat(path_foo, &st), 0);
   EXPECT_EQ(st.st_ino, 2);
   EXPECT_EQ(st.st_mode, S_IFREG | 0644);
   EXPECT_EQ(st.st_nlink, 1);
@@ -359,54 +355,47 @@ static void test_mknod_unlink() {
   EXPECT(st.st_blksize > 0);
   EXPECT_EQ(st.st_blocks, 0);
 
-  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), -1);
+  EXPECT_EQ(mknod(path_foo, S_IFREG | 0644, 0), -1);
   EXPECT_EQ(errno, EEXIST);
 
   // Invalid mode (symlinks not supportedy yet).
-  EXPECT_EQ(mknod(buf, S_IFLNK | 0644, 0), -1);
+  EXPECT_EQ(mknod(path_foo, S_IFLNK | 0644, 0), -1);
   EXPECT_EQ(errno, EINVAL);
 
-  snprintf(buf, sizeof(buf), "%s/foo/bar", mountpoint);
-  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), -1);
+  EXPECT_EQ(mknod(makepath("foo/bar"), S_IFREG | 0644, 0), -1);
   EXPECT_EQ(errno, ENOTDIR);
 
-  snprintf(buf, sizeof(buf), "%s/nonexistent/foo", mountpoint);
-  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), -1);
+  EXPECT_EQ(mknod(makepath("nonexistent/foo"), S_IFREG | 0644, 0), -1);
   EXPECT_EQ(errno, ENOENT);
 
-  snprintf(buf, sizeof(buf), "%s/.", mountpoint);
-  EXPECT_EQ(mknod(buf, S_IFREG | 0644, 0), -1);
+  EXPECT_EQ(mknod(makepath("."), S_IFREG | 0644, 0), -1);
   EXPECT_EQ(errno, EEXIST);
 
-  snprintf(buf, sizeof(buf), "%s/bar", mountpoint);
-  EXPECT_EQ(mknod(buf, S_IFREG | 0777, 0), 0);
-  EXPECT_EQ(stat(buf, &st), 0);
+  EXPECT_EQ(mknod(path_bar, S_IFREG | 0777, 0), 0);
+  EXPECT_EQ(stat(path_bar, &st), 0);
   EXPECT_EQ(st.st_ino, 3);
   EXPECT_EQ(st.st_mode, S_IFREG | 0755);  // umask was applied
   EXPECT_EQ(st.st_nlink, 1);
 
-  snprintf(buf, sizeof(buf), "%s/foo", mountpoint);
-  EXPECT_EQ(unlink(buf), 0);
-  EXPECT_EQ(stat(buf, &st), -1);
+  EXPECT_EQ(unlink(path_foo), 0);
+  EXPECT_EQ(stat(path_foo, &st), -1);
   EXPECT_EQ(errno, ENOENT);
 
-  EXPECT_EQ(unlink(buf), -1);
+  EXPECT_EQ(unlink(path_foo), -1);
   EXPECT_EQ(errno, ENOENT);
 
   // Can't unlink a directory. Use rmdir() instead.
-  EXPECT_EQ(mkdir(buf, 0775), 0);
-  EXPECT_EQ(unlink(buf), -1);
+  EXPECT_EQ(mkdir(path_foo, 0775), 0);
+  EXPECT_EQ(unlink(path_foo), -1);
   EXPECT_EQ(errno, EISDIR);
-  EXPECT_EQ(rmdir(buf), 0);
+  EXPECT_EQ(rmdir(path_foo), 0);
 
-  snprintf(buf, sizeof(buf), "%s/bar", mountpoint);
-  EXPECT_EQ(unlink(buf), 0);
+  EXPECT_EQ(unlink(path_bar), 0);
 
   // After files are deleted, their inode numbers may be re-used. Note: the fact
   // that this actually happens should be considered an implementation detail.
-  snprintf(buf, sizeof(buf), "%s/baz", mountpoint);
-  EXPECT_EQ(mknod(buf, S_IFREG | 0600, 0), 0);
-  EXPECT_EQ(stat(buf, &st), 0);
+  EXPECT_EQ(mknod(path_baz, S_IFREG | 0600, 0), 0);
+  EXPECT_EQ(stat(path_baz, &st), 0);
   EXPECT_EQ(st.st_ino, 2);  // foo's old inode number
   EXPECT_EQ(st.st_nlink, 1);
 
@@ -417,38 +406,35 @@ static void test_mknod_unlink() {
   teardown();
 }
 
-static void verify_directory_contents(const char *path, struct dirent expected_entries[], int expected_size) {
-  char buf[PATH_MAX];
-  snprintf(buf, sizeof(buf), "%s/%s", mountpoint, path);
-
-  DIR *dir = opendir(buf);
+static void verify_directory_contents(const char *relpath, struct dirent expected_entries[], int expected_size) {
+  DIR *dir = opendir(makepath(relpath));
   struct dirent de, *de_ptr = NULL;
   if (dir == NULL) {
-    fprintf(stderr, "Couldn't open directory [%s]!\n", buf);
+    fprintf(stderr, "Couldn't open directory [%s]!\n", relpath);
     test_fail();
     return;
   }
   for (int i = 0; i < expected_size; ++i) {
     EXPECT_EQ(readdir_r(dir, &de, &de_ptr), 0);
     if (de_ptr == NULL) {
-      fprintf(stderr, "Premature end of directory [%s] (after %d entries)\n", buf, i);
+      fprintf(stderr, "Premature end of directory [%s] (after %d entries)\n", relpath, i);
       closedir(dir);
       return;
     }
     EXPECT(de_ptr == &de);
     if (expected_entries[i].d_ino != de.d_ino) {
       fprintf(stderr, "Entry %d in %s: expected ino %lld, read ino %lld\n",
-          i, buf, (long long)expected_entries[i].d_ino, (long long)de.d_ino);
+          i, relpath, (long long)expected_entries[i].d_ino, (long long)de.d_ino);
       test_fail();
     }
     if (strcmp(expected_entries[i].d_name, de.d_name) != 0) {
       fprintf(stderr, "Entry %d in %s: expected name [%s], read name [%s]\n",
-          i, buf, expected_entries[i].d_name, de.d_name);
+          i, relpath, expected_entries[i].d_name, de.d_name);
       test_fail();
     }
     if (expected_entries[i].d_type != de.d_type) {
       fprintf(stderr, "Entry %d in %s: expected type %d, read type %d\n",
-          i, buf, (int)expected_entries[i].d_type, (int)de.d_type);
+          i, relpath, (int)expected_entries[i].d_type, (int)de.d_type);
       test_fail();
     }
   }
@@ -458,8 +444,6 @@ static void verify_directory_contents(const char *path, struct dirent expected_e
 }
 
 static void test_readdir() {
-  char buf[PATH_MAX];
-
   setup();
 
   // ino path
@@ -470,19 +454,13 @@ static void test_readdir() {
   //  5  /dir/file2
   //  6  /dir/.-
 
-  snprintf(buf, sizeof(buf), "%s/dir", mountpoint);
-  mkdir(buf, 0700);
-  snprintf(buf, sizeof(buf), "%s/dir/sub", mountpoint);
-  mkdir(buf, 0700);
-  snprintf(buf, sizeof(buf), "%s/dir/file1", mountpoint);
-  mknod(buf, 0600, 0);
-  snprintf(buf, sizeof(buf), "%s/dir/file2", mountpoint);
-  mknod(buf, 0600, 0);
-  snprintf(buf, sizeof(buf), "%s/dir/.-", mountpoint);
-  mknod(buf, 0600, 0);
+  mkdir(makepath("dir"), 0700);
+  mkdir(makepath("dir/sub"), 0700);
+  mknod(makepath("dir/file1"), 0600, 0);
+  mknod(makepath("dir/file2"), 0600, 0);
+  mknod(makepath("dir/.-"), 0600, 0);
 
-  snprintf(buf, sizeof(buf), "%s/nonexistent", mountpoint);
-  EXPECT(opendir("/nonexistent") == NULL);
+  EXPECT(opendir(makepath("nonexistent")) == NULL);
   EXPECT_EQ(errno, ENOENT);
 
   // read root
