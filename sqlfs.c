@@ -62,6 +62,7 @@ enum statements {
   STMT_LOOKUP,
   STMT_UPDATE_NLINK,
   STMT_INSERT_METADATA,
+  STMT_UPDATE_METADATA,
   STMT_DELETE_METADATA,
   STMT_INSERT_DIRENTRIES,
   STMT_COUNT_DIRENTRIES,
@@ -133,6 +134,15 @@ static const struct Statement {
 #define PARAM_INSERT_METADATA_SIZE    6
 #define PARAM_INSERT_METADATA_BLKSIZE 7
     "INSERT INTO metadata(mode, nlink, uid, gid, mtime, size, blksize) VALUES (?, ?, ?, ?, ?, ?, ?)" },
+
+  { STMT_UPDATE_METADATA,
+#define PARAM_UPDATE_METADATA_MODE    1
+#define PARAM_UPDATE_METADATA_UID     2
+#define PARAM_UPDATE_METADATA_GID     3
+#define PARAM_UPDATE_METADATA_MTIME   4
+#define PARAM_UPDATE_METADATA_SIZE    5
+#define PARAM_UPDATE_METADATA_INO     6
+    "UPDATE metadata SET mode=?, uid=?, gid=?, mtime=?, size=? WHERE ino=?" },
 
   { STMT_DELETE_METADATA,
 #define PARAM_DELETE_METADATA_INO 1
@@ -404,6 +414,43 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
   CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
   return stat->st_ino > 0 ? 0 : EIO;
+}
+
+// Update the metadata for a file/directory identified by its inode number,
+// which is passed in stat->st_ino.
+//
+// Only the following fields are updated: st_mode (permission bits only),
+// st_uid, st_gid, st_mtime, st_size.
+//
+// File size can only be changed for files (not directories). The caller must
+// make sure that the filedata table is updated separately.
+//
+// Returns:
+//  0 on success
+//  ENOENT if no metadata entry exists with the given inode number
+//  EIO if writing to the database failed
+static int sql_update_metadata(struct sqlfs *sqlfs, const struct stat *stat) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_UPDATE_METADATA];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_MODE, stat->st_mode) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_UID, stat->st_uid) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_GID, stat->st_gid) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_MTIME, timespec_to_nanos(&stat->st_mtim)) == SQLITE_OK);
+  if (!S_ISDIR(stat->st_mode)) {
+    CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_SIZE, stat->st_size) == SQLITE_OK);
+  }
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_METADATA_INO, stat->st_mode) == SQLITE_OK);
+
+  int err = 0;
+  int status = sqlite3_step(stmt);
+  if (status != SQLITE_DONE) {
+    LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+    err = EIO;
+  } else if (sqlite3_changes(sqlfs->db) == 0) {
+    err = ENOENT;
+  }
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return err;
 }
 
 // Deletes the metadata for a file/directory. Caller must make sure the contents
