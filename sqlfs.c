@@ -255,7 +255,21 @@ static struct timespec current_timespec() {
   return tp;
 }
 
+// Converts a timespec structure to a 64-bit integer timestamp in nanoseconds.
+// The result is clamped into the range [INT64_MIN:INT64_MAX] if necessary.
+// This range allows dates between the year 1823 and 2116 to be represented.d
 static int64_t timespec_to_nanos(const struct timespec *tp) {
+  if (tp->tv_sec >= 0) {
+    if (tp->tv_sec > INT64_MAX/NANOS_PER_SECOND ||
+        INT64_MAX - (int64_t)tp->tv_sec * NANOS_PER_SECOND < tp->tv_nsec) {
+      return INT64_MAX;
+    }
+  } else {  // tp->tv_sec < 0
+    if (tp->tv_sec < INT64_MIN/NANOS_PER_SECOND ||
+      INT64_MIN - (int64_t)tp->tv_sec * NANOS_PER_SECOND > tp->tv_nsec) {
+      return INT64_MIN;
+    }
+  }
   return (int64_t)tp->tv_sec * NANOS_PER_SECOND + tp->tv_nsec;
 }
 
