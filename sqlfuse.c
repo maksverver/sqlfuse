@@ -138,7 +138,7 @@ static void reply_attr(const char *file, int line, const char *func, fuse_req_t 
 }
 
 static void reply_open(const char *file, int line, const char *func, fuse_req_t req, struct fuse_file_info *fi) {
-  LOG("[%s:%d] %s() <- open fh=%lld direct_io=%d keep_cache=%d\n",
+  LOG("[%s:%d] %s() <- open fh=0x%llx direct_io=%d keep_cache=%d\n",
       file, line, func, (long long)fi->fh, (int)fi->direct_io, (int)fi->keep_cache);
   int res = fuse_reply_open(req, fi);
   if (res != 0) {
