@@ -191,7 +191,8 @@ int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino);
 //     the current size) or eager allocation (if greater than the current size).
 //     Newly allocated bytes are set to zero (sparse files are not supported).
 //     Only regular files can have their size changed.
-//   - attr->st_time: time must be in range (TODO: determine valid range)
+//   - attr->st_time: timestamp in nanoseconds must be in range of a 64-bit
+//     integer (which means approximately between the year 1823 and 2116).
 //
 // Returns:
 //  0 on success
