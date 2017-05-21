@@ -200,4 +200,10 @@ int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino);
 //  EIO if a database operation failed.
 int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, unsigned to_set, struct stat *attr_out);
 
+// TODO: document
+int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, char *buf, size_t size, size_t *size_out);
+
+// TODO: document
+int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, const char *buf, size_t size);
+
 #endif

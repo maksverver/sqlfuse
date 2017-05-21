@@ -95,6 +95,7 @@ static void sqlfuse_destroy(void *userdata) {
 #define REPLY_BUF(req, buf, size) reply_buf(__FILE__, __LINE__, __func__, req, buf, size)
 #define REPLY_ATTR(req, attr) reply_attr(__FILE__, __LINE__, __func__, req, attr)
 #define REPLY_OPEN(req, fi) reply_open(__FILE__, __LINE__, __func__, req, fi)
+#define REPLY_WRITE(req, count) reply_write(__FILE__, __LINE__, __func__, req, count)
 
 static void reply_none(const char *file, int line, const char *func, fuse_req_t req) {
   LOG("[%s:%d] %s() <- none\n", file, line, func);
@@ -143,6 +144,14 @@ static void reply_open(const char *file, int line, const char *func, fuse_req_t 
   int res = fuse_reply_open(req, fi);
   if (res != 0) {
     LOG("WARNING: fuse_reply_open() returned %d\n", res);
+  }
+}
+
+static void reply_write(const char *file, int line, const char *func, fuse_req_t req, size_t count) {
+  LOG("[%s:%d] %s() <- write count=%lld\n", file, line, func, (long long)count);
+  int res = fuse_reply_write(req, count);
+  if (res != 0) {
+    LOG("WARNING: fuse_reply_write() returned %d\n", res);
   }
 }
 
@@ -274,18 +283,33 @@ static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
 static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
-  (void)fi;  // Currenty unused. fi->fh contains file handle set by sqlfuse_open().
-  // TODO: implement this.
-  REPLY_ERR(req, ENOSYS);
+  (void)fi;  // Unused.
+  char *buf = malloc(size);
+  if (buf == NULL) {
+    LOG("WARNING: unable to allocate %lld bytes!\n", (long long)size);
+    // Return EIO because there doesn't seem to be a more suitable errno.
+    return REPLY_ERR(req, EIO);
+  }
+  size_t size_read = 0;
+  const int err = sqlfs_read(fuse_req_userdata(req), ino, off, buf, size, &size_read);
+  if (err != 0) {
+    REPLY_ERR(req, err);
+  } else {
+    REPLY_BUF(req, buf, size_read);
+  }
+  free(buf);
 }
 
 static void sqlfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
     size_t size, off_t off, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
-  (void)buf;  // Currently unused! TODO: use this.
-  (void)fi;  // Currently unused. fi->fh contains file handle set by sqlfuse_open().
-  // TODO: implement this.
-  REPLY_ERR(req, ENOSYS);
+  (void)fi;  // Unused
+  const int err = sqlfs_write(fuse_req_userdata(req), ino, off, buf, size);
+  if (err != 0) {
+    REPLY_ERR(req, err);
+  } else {
+    REPLY_WRITE(req, size);
+  }
 }
 
 static void sqlfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {

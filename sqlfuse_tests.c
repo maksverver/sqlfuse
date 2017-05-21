@@ -584,6 +584,16 @@ static void test_open() {
   teardown();
 }
 
+static void test_read_write() {
+  setup();
+
+  // TODO!
+
+  // also test if append mode works correctly.
+
+  teardown();
+}
+
 static void test_truncate() {
   setup();
 
@@ -643,6 +653,7 @@ static const struct test_case tests[] = {
   TEST(chmod),
   TEST(utime),
   TEST(open),
+  TEST(read_write),
   TEST(truncate),
 #undef TEST
   {NULL, NULL}};

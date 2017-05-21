@@ -1099,3 +1099,11 @@ failure:
   sql_rollback_transaction(sqlfs);
   return err;
 }
+
+int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, char *buf, size_t size, size_t *size_read) {
+  return ENOSYS;
+}
+
+int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, const char *buf, size_t size) {
+  return ENOSYS;
+}
