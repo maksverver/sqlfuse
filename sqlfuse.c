@@ -271,13 +271,6 @@ static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
   REPLY_ERR(req, ENOSYS);
 }
 
-static void sqlfuse_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino));
-  (void)fi;  // Currently unused. Note: contains open() flags! See FUSE header.
-  // TODO: implement this!
-  REPLY_ERR(req, ENOSYS);
-}
-
 static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
@@ -290,13 +283,6 @@ static void sqlfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
     size_t size, off_t off, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
   (void)buf;  // Currently unused! TODO: use this.
-  (void)fi;  // Currently unused. fi->fh contains file handle set by sqlfuse_open().
-  // TODO: implement this.
-  REPLY_ERR(req, ENOSYS);
-}
-
-static void sqlfuse_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino));
   (void)fi;  // Currently unused. fi->fh contains file handle set by sqlfuse_open().
   // TODO: implement this.
   REPLY_ERR(req, ENOSYS);
@@ -408,11 +394,11 @@ const struct fuse_lowlevel_ops sqlfuse_ops = {
   .symlink = NULL,  // symlinks not supported. Maybe later?
   .rename = sqlfuse_rename,
   .link  = NULL,  // hardlinks not supported. Maybe later?
-  .open = sqlfuse_open,
+  .open = NULL,  // we implement stateless file I/O
   .read = sqlfuse_read,
   .write = sqlfuse_write,
   .flush = NULL,  // flush not supported
-  .release = sqlfuse_release,
+  .release = NULL,  // we implement stateless file I/O
   .fsync = NULL,  // fsync not supported
   .opendir = sqlfuse_opendir,
   .readdir = sqlfuse_readdir,

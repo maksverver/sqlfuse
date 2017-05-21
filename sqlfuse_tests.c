@@ -559,6 +559,31 @@ static void test_utime() {
   teardown();
 }
 
+static void test_open() {
+  setup();
+
+  EXPECT_EQ(mknod(makepath("file"), 0600, 0), 0);
+
+  // Existing file can be opened.
+  int fd = open(makepath("file"), O_RDONLY);
+  EXPECT(fd >= 0);
+  EXPECT_EQ(close(fd), 0);
+
+  // Non-existent file cannot be opened.
+  EXPECT_EQ(open(makepath("nonexistent"), O_RDONLY), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  // Adding the O_CREAT file will cause the file to be created as with mknod().
+  EXPECT_EQ(open(makepath("nonexistent"), O_RDONLY | O_CREAT, 0600), fd);
+
+  // Now the file exists and can be opened.
+  EXPECT_EQ(open(makepath("nonexistent"), O_RDONLY), fd + 1);
+  EXPECT_EQ(close(fd + 1), 0);
+  EXPECT_EQ(close(fd), 0);
+
+  teardown();
+}
+
 static void test_truncate() {
   setup();
 
@@ -617,6 +642,7 @@ static const struct test_case tests[] = {
   TEST(readdir),
   TEST(chmod),
   TEST(utime),
+  TEST(open),
   TEST(truncate),
 #undef TEST
   {NULL, NULL}};

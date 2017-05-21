@@ -57,6 +57,12 @@ Decisions to document somewhere:
     the owner/group of a file is changed.)
   - No tests for setuid()/setgid() because that (probaby?) requires root
     privileges.
+  - No implementation for open/release, because we implement stateless file I/O.
+  - Permission checking is deferred to libfuse. This has not been tested.
+    It's probably not safe to share the filesystem with others (i.e. using the
+    -o allow_others mount option).
+  - direct_io is not (explictly) supported, but may work by chance. (Maybe
+    document all mount options and whether they are supported?)
 
 General TODO:
   - create a README with some information and usage notes.
