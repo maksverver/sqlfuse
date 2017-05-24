@@ -184,8 +184,9 @@ static const struct Statement {
     SELECT_DIRENTRIES " WHERE dir_ino = ? AND entry_name >= ? " ORDER_DIRENTRIES },
 
   { STMT_DELETE_FILEDATA,
-#define PARAM_DELETE_FILEDATA_INO 1
-    "DELETE FROM filedata WHERE ino = ?" },
+#define PARAM_DELETE_FILEDATA_INO      1
+#define PARAM_DELETE_FILEDATA_FROM_IDX 2
+    "DELETE FROM filedata WHERE ino = ? AND idx >= ?" },
 
   {-1, NULL}
 };
@@ -620,13 +621,16 @@ static int sql_delete_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
-// Deletes the contents of the file identified by the given inode number.
-// Caller must update/delete the file metadata separately!
+// Deletes the filedata blocks for the file with the given inode number,
+// starting from the block with index from_idx. (Consequently, if from_idx <= 0,
+// then all filedata blocks are deleted.) The caller must update/delete the file
+// metadata separately.
 //
 // Returns 0 on success, or EIO if the database operation fails.
-static int sql_delete_filedata(struct sqlfs *sqlfs, ino_t ino) {
+static int sql_delete_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t from_idx) {
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_DELETE_FILEDATA];
   CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_FILEDATA_INO, ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_FILEDATA_FROM_IDX, from_idx) == SQLITE_OK);
   int status = sqlite3_step(stmt);
   CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
@@ -1013,7 +1017,7 @@ int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino) {
     // need to delete anything from the direntries table.
   } else {
     // Delete file contents from the filedata table.
-    err = sql_delete_filedata(sqlfs, ino);
+    err = sql_delete_filedata(sqlfs, ino, INT64_MIN);
   }
   if (err != 0) {
     // err is EIO
