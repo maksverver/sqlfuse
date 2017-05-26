@@ -191,7 +191,7 @@ static const struct Statement {
 #define PARAM_READ_FILEDATA_COUNT    3
 #define COL_READ_FILEDATA_IDX  0
 #define COL_READ_FILEDATA_DATA 1
-    "SELECT idx, data FROM filedata WHERE ino = ? AND idx >= ? LIMIT ?" },
+    "SELECT idx, data FROM filedata WHERE ino = ? AND idx >= ? ORDER BY idx LIMIT ?" },
 
   { STMT_UPDATE_FILEDATA,
 #define PARAM_UPDATE_FILEDATA_INO  1
