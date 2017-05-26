@@ -165,6 +165,11 @@ static void setup() {
 }
 
 static void teardown() {
+  // Wait for 0.1 second for any lingering releasedir()/forget() calls.
+  // This is a pretty ugly hack! To do this properly, we should have a way to
+  // wait on the sqlfs implementation to close any open handles.
+  usleep(100000);
+
   pthread_kill(fuse_thread, SIGHUP);
 
   void *retval = NULL;
@@ -683,9 +688,10 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
   }
+  CHECK(optind <= argc);
 
   // Run tests.
-  CHECK(optind <= argc);
+  TEST_MTRACE();
   global_setup();
   bool all_pass = test_run(tests, (const char**)argv + optind, argc - optind);
   global_teardown();

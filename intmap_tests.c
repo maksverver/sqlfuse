@@ -95,5 +95,6 @@ static const struct test_case tests[] = {
   {NULL, NULL}};
 
 int main(int argc, char *argv[]) {
+  TEST_MTRACE();
   return test_run(tests, (const char**)argv + 1, argc - 1) ? 0 : 1;
 }

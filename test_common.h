@@ -4,6 +4,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#if HAVE_MTRACE
+#include <mcheck.h>
+#define TEST_MTRACE() mtrace()
+#else
+#define TEST_MTRACE()
+#endif
+
 #define EXPECT_EQ(x, y) test_expect_eq(__FILE__, __LINE__, __func__, #x, #y, (x), (y))
 #define EXPECT(x) test_expect_eq(__FILE__, __LINE__, __func__, #x, "true", (bool)(x), true)
 

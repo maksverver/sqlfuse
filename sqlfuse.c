@@ -36,7 +36,7 @@
 // indicate to FUSE that the end of the directory has been reached.
 //
 // Note that the dir_handle structure is allocated by sqlfuse_opendir() and
-// freed by sqlfuse_closedir(). next_name is allocated by sqlfuse_readdir(),
+// freed by sqlfuse_releasedir(). next_name is allocated by sqlfuse_readdir(),
 // and freed by sqlfuse_readdir() or sqlfuse_closedir().
 struct dir_handle {
   char *next_name;

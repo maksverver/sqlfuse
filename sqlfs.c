@@ -632,8 +632,92 @@ static int sql_delete_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_DELETE_DIRENTRIES];
   CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_DIRENTRIES_DIR_INO, dir_ino) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  return status == SQLITE_DONE ? 0 : EIO;
+}
+
+// Reads filedata bytes from the given file into a buffer.
+//
+// If there is not enough file data to fill the buffer, this function will fail!
+// It is assumed that the caller knows exactly how large the file is, and adjust
+// its read calls accordingly.
+//
+// `blocksize` must be a positive integer: the blocksize of the file identified
+// by `ino`. `offset` and `size` must be nonnegative integers. `buf` must point
+// to a buffer at least `size` bytes long.
+//
+// Returns 0 on success, or EIO if the database operation fails.
+static int sql_read_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t blocksize, int64_t offset, int64_t size, char *buf) {
+  CHECK(blocksize > 0);
+  CHECK(offset >= 0);
+  CHECK(size >= 0);
+  if (size == 0) {
+    return 0;
+  }
+  int err = 0;
+  // Range of blocks to read: from block_idx_begin (inclusive) to block_idx_end (exclusive).
+  int64_t block_idx_begin = offset/blocksize;
+  int64_t block_idx_end = (offset + size + blocksize - 1)/blocksize;
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_READ_FILEDATA];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_READ_FILEDATA_INO, ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_READ_FILEDATA_FROM_IDX, block_idx_begin) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_READ_FILEDATA_COUNT, block_idx_end - block_idx_begin) == SQLITE_OK);
+  // Fill buffer by reading a sequence of chunks. Each chunk starts at a block
+  // boundary and is at most `blocksize` bytes long (but the last chunk may be
+  // shorter than that).
+  for (int64_t i = block_idx_begin; i < block_idx_end; ++i) {
+    int64_t chunk_offset = i*blocksize;
+    int64_t chunk_size = int64_min(offset + size - chunk_offset, blocksize);
+    int status = sqlite3_step(stmt);
+    if (status != SQLITE_ROW) {
+      LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+      err = EIO;
+      goto finish;
+    }
+    int64_t block_idx = sqlite3_column_int64(stmt, COL_READ_FILEDATA_IDX);
+    if (block_idx != i) {
+      LOG("[%s:%d] %s() ino=%lld incorrect block index! expected: %lld received: %lld",
+          __FILE__, __LINE__, __func__, (long long)ino, (long long)i, (long long)block_idx);
+      err = EIO;
+      goto finish;
+    }
+    const char *data_ptr = sqlite3_column_blob(stmt, COL_READ_FILEDATA_DATA);
+    CHECK(data_ptr != NULL);
+    int64_t data_size = sqlite3_column_bytes(stmt, COL_READ_FILEDATA_DATA);
+    if (data_size < chunk_size) {
+      LOG("[%s:%d] %s() ino=%lld idx=%lld incorrect block size! expected: %lld received: %lld",
+          __FILE__, __LINE__, __func__, (long long)ino, (long long)i,
+          (long long)chunk_size, (long long)data_size);
+      err = EIO;
+      goto finish;
+    }
+    if (chunk_offset < offset) {
+      // First chunk. Only copy the part overlapping the range to be read.
+      memcpy(buf, data_ptr + (offset - chunk_offset), chunk_size - (offset - chunk_offset));
+    } else {
+      memcpy(buf + (chunk_offset - offset), data_ptr, chunk_size);
+    }
+  }
+  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+
+finish:
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  return err;
+}
+
+// Writes one block of data to the filedata table.
+//
+// Returns 0 on success, or EIO if the database operation fails.
+static int sql_update_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t block_idx, const char *block_data, size_t block_size) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_UPDATE_FILEDATA];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_FILEDATA_INO, ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_FILEDATA_IDX, block_idx) == SQLITE_OK);
+  CHECK(sqlite3_bind_blob64(stmt, PARAM_UPDATE_FILEDATA_DATA, block_data, block_size, SQLITE_STATIC) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
