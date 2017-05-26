@@ -647,6 +647,30 @@ static void test_truncate() {
   teardown();
 }
 
+static void test_blocksize() {
+  setup();
+
+  // Default blocksize is 4K.
+  EXPECT_EQ(sqlfs_get_blocksize(sqlfs), 4096);
+
+  sqlfs_set_blocksize(sqlfs, 123);
+  EXPECT_EQ(sqlfs_get_blocksize(sqlfs), 123);
+
+  const char *path = makepath("file");
+  EXPECT_EQ(mknod(path, 0644, 0), 0);
+  EXPECT_EQ(truncate(path, 1000), 0);
+
+  struct stat attr;
+  EXPECT_EQ(stat(path, &attr), 0);
+  // FUSE will round down to the nearest power of 2.
+  EXPECT_EQ(attr.st_blksize, 64);
+  // Number of blocks is always in multiples of 512 blocks; it's not affected
+  // by the filedata blocksize.
+  EXPECT_EQ(attr.st_blocks, 2);
+
+  teardown();
+}
+
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
@@ -660,6 +684,7 @@ static const struct test_case tests[] = {
   TEST(open),
   TEST(read_write),
   TEST(truncate),
+  TEST(blocksize),
 #undef TEST
   {NULL, NULL}};
 

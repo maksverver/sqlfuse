@@ -48,9 +48,6 @@
 
 #define ROOT_INO ((ino_t) 1)
 
-// "Blocksize for IO" as returned in the st_blksize field of struct stat.
-#define BLKSIZE 4096
-
 #define NANOS_PER_SECOND 1000000000
 
 enum statements {
@@ -212,6 +209,7 @@ struct sqlfs {
   mode_t umask;
   uid_t uid;
   gid_t gid;
+  int blocksize;
   sqlite3_stmt *stmt[NUM_STATEMENTS];
   sqlite3_stmt *dir_stmt;
 };
@@ -346,7 +344,7 @@ static void create_root_directory(struct sqlfs *sqlfs) {
   sqlite3_finalize(stmt);
 }
 
-static void fill_stat(sqlite3_stmt *stmt, struct stat *stat) {
+static void fill_stat(sqlite3_stmt *stmt, struct stat *stat, int default_blocksize) {
   memset(stat, 0, sizeof(*stat));
   stat->st_ino = sqlite3_column_int64(stmt, COL_STAT_INO);
   const mode_t mode = sqlite3_column_int64(stmt, COL_STAT_MODE);
@@ -359,7 +357,7 @@ static void fill_stat(sqlite3_stmt *stmt, struct stat *stat) {
   stat->st_size = size;
   // Blocksize for filesystem I/O
   stat->st_blksize = sqlite3_column_type(stmt, COL_STAT_BLKSIZE) == SQLITE_NULL
-      ? BLKSIZE : sqlite3_column_int64(stmt, COL_STAT_BLKSIZE);
+      ? default_blocksize : sqlite3_column_int64(stmt, COL_STAT_BLKSIZE);
   // Size in 512 byte blocks. Unrelated to blocksize above!
   stat->st_blocks = (size + 511) >> 9;
   // atim/mtim/ctim are all set to the last modification timestamp.
@@ -367,13 +365,13 @@ static void fill_stat(sqlite3_stmt *stmt, struct stat *stat) {
     nanos_to_timespec(sqlite3_column_int64(stmt, COL_STAT_MTIME));
 }
 
-static int finish_stat_query(sqlite3_stmt *stmt, struct stat *stat) {
+static int finish_stat_query(sqlite3_stmt *stmt, struct stat *stat, int default_blocksize) {
   int err = -1;
   int status = sqlite3_step(stmt);
   if (status == SQLITE_DONE) {
     err = ENOENT;
   } else if (status == SQLITE_ROW) {
-    fill_stat(stmt, stat);
+    fill_stat(stmt, stat, default_blocksize);
     CHECK(sqlite3_step(stmt) == SQLITE_DONE);
     err = 0;
   } else {
@@ -390,7 +388,7 @@ static int sql_stat_entry(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_STAT_ENTRY];
   CHECK(sqlite3_bind_int64(stmt, PARAM_STAT_ENTRY_DIR_INO, dir_ino) == SQLITE_OK);
   CHECK(sqlite3_bind_text(stmt, PARAM_STAT_ENTRY_ENTRY_NAME, entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
-  return finish_stat_query(stmt, stat);
+  return finish_stat_query(stmt, stat, sqlfs->blocksize);
 }
 
 // Allocates an inode number for a new file/directory with the given mode and
@@ -408,7 +406,7 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
   stat->st_nlink = nlink + S_ISDIR(mode);
   stat->st_uid = sqlfs->uid;
   stat->st_gid = sqlfs->gid;
-  stat->st_blksize = BLKSIZE;
+  stat->st_blksize = sqlfs->blocksize;
   stat->st_mtim = stat->st_ctim = stat->st_atim = current_timespec();
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_INSERT_METADATA];
   CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_MODE, mode) == SQLITE_OK);
@@ -418,7 +416,7 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
   CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_MTIME, timespec_to_nanos(&stat->st_mtim)) == SQLITE_OK);
   if (!S_ISDIR(mode)) {
     CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_SIZE, 0) == SQLITE_OK);
-    CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_BLKSIZE, BLKSIZE) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_METADATA_BLKSIZE, sqlfs->blocksize) == SQLITE_OK);
   }
 
   int status = sqlite3_step(stmt);
@@ -745,6 +743,7 @@ struct sqlfs *sqlfs_create(
   sqlfs->umask = umask;
   sqlfs->uid = uid;
   sqlfs->gid = gid;
+  sqlfs->blocksize = 4096;  /* default Linux pagesize */
 
   if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) goto failed;
 
@@ -815,10 +814,19 @@ void sqlfs_destroy(struct sqlfs *sqlfs) {
   free(sqlfs);
 }
 
+int sqlfs_get_blocksize(const struct sqlfs *sqlfs) {
+  return sqlfs->blocksize;
+}
+
+void sqlfs_set_blocksize(struct sqlfs *sqlfs, int blocksize) {
+  CHECK(blocksize > 0 && blocksize < INT32_MAX);
+  sqlfs->blocksize = blocksize;
+}
+
 int sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_STAT];
   CHECK(sqlite3_bind_int64(stmt, PARAM_STAT_INO, ino) == SQLITE_OK);
-  return finish_stat_query(stmt, stat);
+  return finish_stat_query(stmt, stat, sqlfs->blocksize);
 }
 
 // Looks up a single directory entry. If succesful, the child inode number is

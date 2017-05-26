@@ -34,6 +34,13 @@ struct sqlfs *sqlfs_create(
 // Destroys the filesystem state. Afterwards, the state should not be used.
 void sqlfs_destroy(struct sqlfs *sqlfs);
 
+// Returns the current blocksize, which will be used to create new files.
+int sqlfs_get_blocksize(const struct sqlfs *sqlfs);
+
+// Sets the new blocksize. Should be positive, and small enough to be able to
+// allocate full blocks in memory. Usually, this is a power of 2.
+void sqlfs_set_blocksize(struct sqlfs *sqlfs, int blocksize);
+
 // Retrieves metadata for the given inode number.
 //
 // Returns:
