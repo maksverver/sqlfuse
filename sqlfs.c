@@ -227,6 +227,14 @@ static enum name_kind name_kind(const char *name) {
   return NAME_REGULAR;
 }
 
+static int64_t int64_min(int64_t x, int64_t y) {
+  return x < y ? x : y;
+}
+
+static int64_t int64_max(int64_t x, int64_t y) {
+  return x > y ? x : y;
+}
+
 static bool prepare(sqlite3 *db, const char *sql, sqlite3_stmt **stmt) {
   if (sqlite3_prepare_v2(db, sql, -1, stmt, NULL) != SQLITE_OK) {
     fprintf(stderr, "Failed to prepare statement [%s]: %s\n", sql, sqlite3_errmsg(db));
@@ -1143,8 +1151,90 @@ finish:
   return err;
 }
 
-int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, unsigned to_set, struct stat *attr_out) {
+// Changes the size of a file from `old_size` to `new_size`, padding the current
+// data with zeroes if necessary.
+//
+// Only the filedata table is updated. Metadata must be updated separately.
+static int resize_filedata(struct sqlfs *sqlfs, ino_t ino, off_t old_size, off_t new_size, off_t blksize) {
+  CHECK(old_size >= 0);
+  CHECK(new_size >= 0);
+  CHECK(blksize > 0);
 
+  if (old_size == new_size) {
+    return 0;
+  }
+
+  char *block = calloc(blksize, 1);
+  if (block == NULL) {
+    LOG("[%s:%d] %s(dir_ino=%lld): unable to allocate %lld bytes!\n",
+      __FILE__, __LINE__, __func__, (long long)ino, (long long)blksize);
+    // Return EIO because there doesn't seem to be a more suitable errno.
+    return EIO;
+  }
+
+  int err = 0;
+
+  const off_t old_blocks = (old_size + blksize - 1) / blksize;
+  const off_t new_blocks = (new_size + blksize - 1) / blksize;
+  if (new_size > old_size) {
+    // pos = old_size rounded down to a block boundary.
+    off_t pos = old_size - old_size % blksize;
+    if (pos < old_size) {
+      // Read partial data from the last block.
+      err = sql_read_filedata(sqlfs, ino, blksize, pos, old_size - pos, block);
+      if (err != 0) {
+        goto failure;
+      }
+    }
+    while (pos < new_size) {
+      // Size of the next block to write: min(blksize, new_size - pos)
+      int64_t size = int64_min(new_size - pos, blksize);
+      err = sql_update_filedata(sqlfs, ino, pos/blksize, block, size);
+      if (err != 0) {
+        goto failure;
+      }
+      if (pos < old_size) {
+        // Clear out partial data from first block.
+        memset(block, 0, old_size - pos);
+      }
+      pos += size;
+    }
+  } else {  // new_size < old_size
+    // Truncate.
+    if (new_blocks < old_blocks) {
+      // Discard excess blocks.
+      err = sql_delete_filedata(sqlfs, ino, new_blocks);
+      if (err != 0) {
+        goto failure;
+      }
+    }
+    // pos = new_size rounded down to a block boundary.
+    off_t pos = new_size - new_size % blksize;
+    if (pos < new_size) {
+      // Truncate last block, keeping the old bytes.
+      err = sql_read_filedata(sqlfs, ino, blksize, pos, new_size - pos, block);
+      if (err != 0) {
+        goto failure;
+      }
+      err = sql_update_filedata(sqlfs, ino, pos/blksize, block, new_size - pos);
+      if (err != 0) {
+        goto failure;
+      }
+    }
+  }
+  CHECK(err == 0);
+  goto cleanup;
+
+failure:
+  CHECK(err != 0);
+  goto cleanup;
+
+cleanup:
+  free(block);
+  return err;
+}
+
+int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, unsigned to_set, struct stat *attr_out) {
   CHECK(attr_in != attr_out);
   memset(attr_out, 0, sizeof(*attr_out));
 
@@ -1192,7 +1282,11 @@ int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, u
     if (!(to_set & SQLFS_SET_ATTR_MTIME)) {
       attr_out->st_mtim = current_timespec();
     }
-    // TODO: update size. If changed, truncate/extend allocated size.
+    err = resize_filedata(sqlfs, ino, attr_out->st_size, attr_in->st_size, attr_out->st_blksize);
+    if (err != 0) {
+      goto failure;
+    }
+    attr_out->st_size = attr_in->st_size;
   }
 
   if (to_set != 0) {
@@ -1212,10 +1306,176 @@ failure:
   return err;
 }
 
-int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, char *buf, size_t size, size_t *size_read) {
-  return ENOSYS;
+int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, char *buf, size_t *size_read) {
+  CHECK(off >= 0 && off < INT64_MAX);
+  CHECK(size < INT64_MAX);
+
+  sql_begin_transaction(sqlfs);
+
+  struct stat attr = {0};
+  int err = sqlfs_stat(sqlfs, ino, &attr);
+  if (err != 0) {
+    goto failure;
+  }
+  if (S_ISDIR(attr.st_mode)) {
+    err = EISDIR;
+    goto failure;
+  }
+  if (!S_ISREG(attr.st_mode)) {
+    err = EINVAL;
+    goto failure;
+  }
+
+  int64_t size_to_read = int64_max(0, int64_min(size, (int64_t)attr.st_size - (int64_t)off));
+  if (size > 0) {
+    err = sql_read_filedata(sqlfs, ino, attr.st_blksize, off, size_to_read, buf);
+    if (err != 0) {
+      goto failure;
+    }
+  }
+  *size_read = size_to_read;
+  CHECK(err == 0);
+  sql_commit_transaction(sqlfs);
+  return 0;
+
+failure:
+  CHECK(err != 0);
+  sql_rollback_transaction(sqlfs);
+  return err;
 }
 
-int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, const char *buf, size_t size) {
-  return ENOSYS;
+int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, const char *buf) {
+  CHECK(off >= 0 && off < INT64_MAX);
+  CHECK(size < INT64_MAX);
+
+  char *temp_block = NULL;
+
+  sql_begin_transaction(sqlfs);
+
+  struct stat attr = {0};
+  int err = sqlfs_stat(sqlfs, ino, &attr);
+  if (err != 0) {
+    goto failure;
+  }
+  if (S_ISDIR(attr.st_mode)) {
+    err = EISDIR;
+    goto failure;
+  }
+  if (!S_ISREG(attr.st_mode)) {
+    err = EINVAL;
+    goto failure;
+  }
+
+  const int64_t blksize = attr.st_blksize;
+  const int64_t new_size = int64_max(off + size, attr.st_size);
+
+  if (off > attr.st_size) {
+    // Write is past-the-end of the file. Extend the file to `off`, filling the
+    // gap with zeroes.
+    err = resize_filedata(sqlfs, ino, attr.st_size, off, blksize);
+    if (err != 0) {
+      goto failure;
+    }
+    attr.st_size = off;
+  }
+
+  for (int64_t i = off / blksize; i * blksize < off + (int64_t)size; ++i) {
+    const int64_t chunk_offset = i * blksize;
+
+    // Size of the chunk to be written. How far this extends depends not only
+    // on the range to be written, but also on the current size of the file,
+    // since we don't want to truncate the file if the write ends before the
+    // end of the block.
+    const int64_t chunk_size = int64_min(new_size - chunk_offset, blksize);
+    CHECK(chunk_size > 0);
+
+    // buf_offset is the position in `buf` from which to start copying.
+    const int64_t buf_offset = (int64_t)chunk_offset - (int64_t)off;
+
+    // Pointer to the chunk data to write. This will either point into `buf`
+    // directly, or into a temporary buffer assigned to `temp_block`, depending on
+    // whether the chunk to be written consists entirely of data from `buf` or
+    // has to be combined with a prefix and/or suffix of old data read from the
+    // filedata table.
+    const char *chunk_ptr = NULL;
+
+    if (chunk_offset >= off && chunk_offset + chunk_size <= off + (int64_t)size) {
+      // Easy case: chunk to write will contain data from `buf` only.
+      chunk_ptr = buf + buf_offset;
+    } else {
+      // Hard case: the block to write contains a mix of old and new data. We'll
+      // allocate a temporary block, fill it with old data, then copy over the
+      // new data that falls in range.
+
+      // Allocate a temporary buffer (if we don't have one yet). We might use it
+      // at most two times: once for the first temp_block, and once for the last.
+      if (temp_block == NULL) {
+        // It's enough to allocate `chunk_size` because if we need more than one
+        // temp_block, the first one will be the full `blksize` in length.
+        temp_block = malloc(chunk_size);
+        if (temp_block == NULL) {
+          LOG("[%s:%d] %s(dir_ino=%lld): unable to allocate %lld bytes!\n",
+            __FILE__, __LINE__, __func__, (long long)ino, (long long)blksize);
+          // Return EIO because there doesn't seem to be a more suitable errno.
+          err = EIO;
+          goto failure;
+        }
+      }
+
+      // Defensively fill temp_block with -1s to detect any bugs. (If everything
+      // is right, the contents should be completely overwritten below, but the
+      // logic is complicated.)
+      memset(temp_block, -1, chunk_size);
+
+      // Read old data into `temp_block`. This may be less than `chunk_size`,
+      // because the range to be written may extend beyond the end of the file.
+      int64_t bytes_to_read = int64_min(chunk_size, attr.st_size - chunk_offset);
+      CHECK(bytes_to_read > 0);
+      err = sql_read_filedata(sqlfs, ino, blksize, chunk_offset, bytes_to_read, temp_block);
+      if (err != 0) {
+        goto failure;
+      }
+
+      // Copy the new data into `temp_block`.
+      if (buf_offset < 0) {
+        int64_t bytes_to_copy = int64_min(blksize + buf_offset, size);
+        CHECK(bytes_to_copy > 0 && bytes_to_copy <= chunk_size);
+        memcpy(temp_block - buf_offset, buf, bytes_to_copy);
+      } else {  // buf_offset >= 0
+        int64_t bytes_to_copy = int64_min(blksize, size - buf_offset);
+        CHECK(bytes_to_copy > 0 && bytes_to_copy <= chunk_size);
+        memcpy(temp_block, buf + buf_offset, bytes_to_copy);
+      }
+
+      chunk_ptr = temp_block;
+    }
+
+    // Actually write the next chunk.
+    err = sql_update_filedata(sqlfs, ino, i, chunk_ptr, chunk_size);
+    if (err != 0) {
+      goto failure;
+    }
+  }
+
+  // Update metadata: size and mtime changed.
+  CHECK(err == 0);
+  attr.st_size = new_size;
+  attr.st_mtim = attr.st_ctim = attr.st_atim = current_timespec();
+  err = sql_update_metadata(sqlfs, &attr);
+  if (err != 0) {
+    goto failure;
+  }
+
+  CHECK(err == 0);
+  sql_commit_transaction(sqlfs);
+  goto cleanup;
+
+failure:
+  CHECK(err != 0);
+  sql_rollback_transaction(sqlfs);
+  goto cleanup;
+
+cleanup:
+  free(temp_block);
+  return err;
 }

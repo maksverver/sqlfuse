@@ -82,7 +82,7 @@ int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
 //  ENOTDIR if the named entry does not refer to a directory
 //  EBUSY if the named entry refers to the root directory
 //  ENOTEMPTY if the named directory is not empty
-//  EIO if a database operation fails
+//  EIO if a database operation failed
 int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino);
 
 // The sqlfs_dir_open(), sqlfs_dir_next() and sqlfs_dir_close() functions are
@@ -203,15 +203,35 @@ int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino);
 //
 // Returns:
 //  0 on success
-//  EINVAL if to_set contains invalid flags, or one of the fields is invalid.
-//  ENOENT if the inode does not exist.
-//  EIO if a database operation failed.
+//  EINVAL if to_set contains invalid flags, or one of the fields is invalid
+//  ENOENT if the inode does not exist
+//  EIO if a database operation failed
 int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, unsigned to_set, struct stat *attr_out);
 
-// TODO: document
-int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, char *buf, size_t size, size_t *size_out);
+// Reads data from a file into a buffer, starting at the given file offset.
+//
+// This routine always fills the buffer completely, unless the file is smaller
+// than `off + size` bytes. On success, the number of bytes read is written to
+// *size_out; a value smaller than `size` indicates that the end of the file was
+// reached.
+//
+// Returns:
+//  0 on success
+//  ENOENT if the file does not exist
+//  EISDIR if `ino` refers to a directory
+//  EINVAL if `ino` refers to neither a regular file nor a directory
+//  EIO if a database operation failed
+int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, char *buf, size_t *size_out);
 
-// TODO: document
-int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, const char *buf, size_t size);
+// Writes data from a buffer into a file, starting at the given file offset,
+// increasing the file size if necessary. Gaps are filled with zeroes.
+//
+// Returns:
+//  0 on success
+//  ENOENT if the file does not exist
+//  EISDIR if `ino` refers to a directory
+//  EINVAL if `ino` refers to neither a regular file nor a directory
+//  EIO if a database operation failed
+int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, const char *buf);
 
 #endif

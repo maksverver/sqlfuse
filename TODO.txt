@@ -1,12 +1,10 @@
 Next:
-  - sqlfuse_open()/sqlfuse_release() to open/close files
-  - sqlfuse_read()/sqlfuse_write() to read/write files
-  - finish truncation in sqlfs_set_attr() and then finish test_truncate()!
   - sqlfuse_rename()
+  - verify rename() is used when unlinking an open file?
   - Lookup accounting!!! + sqlfuse_forget()
+  - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
   - Test if other filesystems support creating files/subdirectories in unlinked
     directories (using unlink()/createnodat()?). How should I handle that case?
-  - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
   - test unlinking of open files, and reading/writing from them
   - Delete unlinked files/directories at startup. (Note: should also delete
     file/directory contents!)
@@ -30,8 +28,10 @@ Things to test:
     (this only makes sense to test with very large directories otherwise the
      entire directory is probably read into one buffer?)
   - Add unit tests on the sqlfs level:
-      - opendir()/readdir()/closedir()
+     - unaligned read() (currently entirely untested!)
+     - opendir()/readdir()/closedir() with various edge cases
   - test on 32-bit ARM -- check that binary format is compatible!
+  - mtrace() seems buggy in multithreaded environment. Get rid of leak tests?
 
 TBD:
   - what should the uid/gid/mode of the root directory be?
@@ -61,8 +61,6 @@ Decisions to document somewhere:
   - Permission checking is deferred to libfuse. This has not been tested.
     It's probably not safe to share the filesystem with others (i.e. using the
     -o allow_others mount option).
-  - direct_io is not (explictly) supported, but may work by chance. (Maybe
-    document all mount options and whether they are supported?)
 
 General TODO:
   - create a README with some information and usage notes.
@@ -74,3 +72,22 @@ General TODO:
     pointers and so on).
   - dump tool to dump contents of database?
   - another tool to rekey the database?
+
+Things I learned about fuse:
+  - direct_io mode is not available in low-level mode. Without it (by default),
+    file access goes through the kernel's page cache, which makes testing more
+    difficult, but it has the benefit that reads are aligned to page boundaries.
+
+    (The underlying sqlfs library would support direct I/O and unaligned read()/
+    write() calls.)
+
+  - The keep_cache flag allows the kernel to cache file data. The kernel will
+    invalidate the cache automatically. This mode is applicable to filesystems
+    where the underlying data cannot change except through the kernel API, which
+    is true for us (but wouldn't be true for e.g. a network filesystem that can
+    be modified by multiple users at once).
+
+    (How does this relate to the kernel_cache mount option?)
+
+  - TODO: go over other mount options? (For example, we do support returning
+    inos in readdir().)

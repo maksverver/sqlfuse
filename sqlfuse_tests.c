@@ -589,14 +589,93 @@ static void test_open() {
   teardown();
 }
 
+static void verify_contents(const char *path, const char *expected_data, int expected_size) {
+  struct stat attr;
+  if (stat(path, &attr) != 0) {
+    perror(path);
+    test_fail();
+    return;
+  }
+  EXPECT_EQ(expected_size, attr.st_size);
+  if (expected_size != attr.st_size) {
+    return;
+  }
+  char *data = malloc(expected_size + 1);
+  int fd = open(path, O_RDONLY);
+  if (fd < 0) {
+    perror(path);
+    test_fail();
+    return;
+  }
+  // Read 1 extra byte to detect EOF.
+  ssize_t nread = read(fd, data, expected_size + 1);
+  EXPECT_EQ(nread, expected_size);
+  if (nread == expected_size) {
+    for (int i = 0; i < expected_size; ++i) {
+      if (expected_data[i] != data[i]) {
+        fprintf(stderr, "Mismatch at byte %d: expected 0x%02x, received 0x%02x.\n",
+          (int)i, expected_data[i] & 0xff, data[i] & 0xff);
+        test_fail();
+        break;
+      }
+    }
+  }
+  close(fd);
+  free(data);
+}
+
+static void set_mtime(const char *path, time_t timestamp) {
+  struct utimbuf utimbuf = { .modtime = timestamp, .actime = timestamp };
+  EXPECT_EQ(utime(path, &utimbuf), 0);
+}
+
+static time_t get_mtime(const char *path) {
+  struct stat attr;
+  attr.st_mtime = 0;
+  EXPECT_EQ(stat(path, &attr), 0);
+  return attr.st_mtime;
+}
+
 static void test_read_write() {
   setup();
 
-  // TODO!
+  const char *path = makepath("file");
+  int fd = open(path, O_CREAT | O_RDWR);
+  EXPECT(fd >= 0);
 
-  // also test if append mode works correctly.
+  char dummy;
+  EXPECT_EQ(read(fd, &dummy, 1), 0);
+
+  EXPECT_EQ(write(fd, "a", 1), 1);
+  EXPECT_EQ(write(fd, "bc", 2), 2);
+  EXPECT_EQ(write(fd, "def", 3), 3);
+
+  verify_contents(path, "abcdef", 6);
+
+  // Verify that writing updates mtime.
+  time_t past_time = time(NULL) - 1;
+  set_mtime(path, past_time);
+  EXPECT_EQ(get_mtime(path), past_time);
+  EXPECT_EQ(write(fd, "g", 1), 1);
+  EXPECT(get_mtime(path) > past_time);
+
+  // Write past the end of the file to extend it.
+  EXPECT_EQ(lseek(fd, 1, SEEK_CUR), 8);
+  EXPECT_EQ(write(fd, "h", 1), 1);
+  verify_contents(path, "abcdefg\0h", 9);
+
+  // (these should go into a separate test case)
+
+  close(fd);
 
   teardown();
+}
+
+static void update_contents(const char *path, char *data, size_t size) {
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC);
+  EXPECT(fd >= 0);
+  EXPECT_EQ(write(fd, data, size), size);
+  close(fd);
 }
 
 static void test_truncate() {
@@ -604,45 +683,125 @@ static void test_truncate() {
 
   struct stat st;
 
-  const char *const path_foo = makepath("foo");
+  const char *const path = makepath("foo");
 
   // Can only truncate regular files.
-  EXPECT_EQ(truncate(path_foo, 0), -1);
+  EXPECT_EQ(truncate(path, 0), -1);
   EXPECT_EQ(errno, ENOENT);
-  EXPECT_EQ(mkdir(path_foo, 0700), 0);
-  EXPECT_EQ(truncate(path_foo, 0), -1);
+  EXPECT_EQ(mkdir(path, 0700), 0);
+  EXPECT_EQ(truncate(path, 0), -1);
   EXPECT_EQ(errno, EISDIR);
-  EXPECT_EQ(rmdir(path_foo), 0);
-  EXPECT_EQ(mknod(path_foo, 0644, 0), 0);
+  EXPECT_EQ(rmdir(path), 0);
+  EXPECT_EQ(mknod(path, 0644, 0), 0);
 
-  EXPECT_EQ(truncate(path_foo, 5000), 0);
-  EXPECT_EQ(stat(path_foo, &st), 0);
+  EXPECT_EQ(truncate(path, 5000), 0);
+  EXPECT_EQ(stat(path, &st), 0);
   // If the blocksize changes, updated this test.
   EXPECT_EQ(st.st_blksize, 4096);
   EXPECT_EQ(st.st_size, 5000);
-  // TODO: read file contents, check it's all 0
 
-  // TODO: fill with a's
+  // File contains only 0s
+  char contents[6000];
+  memset(contents, 0, 6000);
+  verify_contents(path, contents, 5000);
 
-  EXPECT_EQ(truncate(path_foo, 2500), 0);
-  EXPECT_EQ(stat(path_foo, &st), 0);
-  EXPECT_EQ(st.st_size, 2500);
+  memset(contents, 'a', 5000);
+  update_contents(path, contents, 5000);
 
-  EXPECT_EQ(truncate(path_foo, 6000), 0);
-  EXPECT_EQ(stat(path_foo, &st), 0);
-  EXPECT_EQ(st.st_size, 6000);
+  EXPECT_EQ(truncate(path, 2500), 0);
+  verify_contents(path, contents, 2500);
 
-  // TODO: check that file contains 2500 a's followed by 3500 0's
+  EXPECT_EQ(truncate(path, 6000), 0);
+  memset(contents + 2500, 0, 3500);
+  verify_contents(path, contents, 6000);
 
-  EXPECT_EQ(truncate(path_foo, 0), 0);
-  EXPECT_EQ(stat(path_foo, &st), 0);
-  EXPECT_EQ(st.st_size, 0);
+  time_t past_time = time(NULL) - 1;
+  set_mtime(path, past_time);
+  EXPECT_EQ(get_mtime(path), past_time);
 
-  // TODO: check that file is empty when read.
+  EXPECT_EQ(truncate(path, 0), 0);
+  verify_contents(path, contents, 0);
+
+  // Truncation updates time.
+  EXPECT(get_mtime(path) > past_time);
 
   // TODO: add a test for ftruncate?
 
-  // TOOD: add a test to verify that mtime is updated to the current time.
+  teardown();
+}
+
+static void test_write_edgecases() {
+  // Tricky cases (to unit test!)
+  //
+  //        0123 4567 8901 2345 6789
+  // file: |----|----|--..|....|....|
+  //
+  //  a.   |....|----|....|  exactly one temp_block
+  //  b.   |----|----|....|  exactly two blocks
+  //  c.   |---.|....|....|  first half of a block
+  //  d.   |.---|....|....|  last half of a block
+  //  e.   |.--.|....|....|  middle of a block
+  //  f.   |..--|--..|....|  spanning two different blocks
+  //  g.   |...-|----|-...|  write mixes whole and partial blocks
+  //  h.   |.---|----|---.|  write extends old temp_block
+  //  i.   |....|....|....|.-..|....|   write outside range
+  //  j.   |....|....|....|...-|--..|   write outside range
+  //
+  // Note that case e doesn't extend beyond the end of the file, while f does.
+  // Note that the open space introduced by g will be zero-filled.
+
+  setup();
+
+  // Small blocksize to make these tests easier to write.
+  sqlfs_set_blocksize(sqlfs, 4);
+  EXPECT_EQ(sqlfs_get_blocksize(sqlfs), 4);
+
+  const char *path = makepath("file");
+  update_contents(path, "xxxxxxxxxx", 10);
+
+  int fd = open(path, O_WRONLY);
+
+  EXPECT_EQ(lseek(fd, 4, SEEK_SET), 4);
+  EXPECT_EQ(write(fd, "aaaa", 4), 4);
+  verify_contents(path, "xxxxaaaaxx", 10);
+
+  EXPECT_EQ(lseek(fd, 0, SEEK_SET), 0);
+  EXPECT_EQ(write(fd, "bbbbbbbb", 8), 8);
+  verify_contents(path, "bbbbbbbbxx", 10);
+
+  EXPECT_EQ(lseek(fd, 0, SEEK_SET), 0);
+  EXPECT_EQ(write(fd, "ccc", 3), 3);
+  verify_contents(path, "cccbbbbbxx", 10);
+
+  EXPECT_EQ(lseek(fd, 1, SEEK_SET), 1);
+  EXPECT_EQ(write(fd, "ddd", 3), 3);
+  verify_contents(path, "cdddbbbbxx", 10);
+
+  EXPECT_EQ(lseek(fd, 1, SEEK_SET), 1);
+  EXPECT_EQ(write(fd, "ee", 2), 2);
+  verify_contents(path, "ceedbbbbxx", 10);
+
+  EXPECT_EQ(lseek(fd, 2, SEEK_SET), 2);
+  EXPECT_EQ(write(fd, "ffff", 4), 4);
+  verify_contents(path, "ceffffbbxx", 10);
+
+  EXPECT_EQ(lseek(fd, 3, SEEK_SET), 3);
+  EXPECT_EQ(write(fd, "gggggg", 6), 6);
+  verify_contents(path, "cefggggggx", 10);
+
+  EXPECT_EQ(lseek(fd, 1, SEEK_SET), 1);
+  EXPECT_EQ(write(fd, "hhhhhhhhhh", 10), 10);
+  verify_contents(path, "chhhhhhhhhh", 11);
+
+  EXPECT_EQ(lseek(fd, 13, SEEK_SET), 13);
+  EXPECT_EQ(write(fd, "i", 1), 1);
+  verify_contents(path, "chhhhhhhhhh\0\0i", 14);
+
+  EXPECT_EQ(lseek(fd, 15, SEEK_SET), 15);
+  EXPECT_EQ(write(fd, "jjj", 3), 3);
+  verify_contents(path, "chhhhhhhhhh\0\0i\0jjj", 18);
+
+  close(fd);
 
   teardown();
 }
@@ -684,6 +843,7 @@ static const struct test_case tests[] = {
   TEST(open),
   TEST(read_write),
   TEST(truncate),
+  TEST(write_edgecases),
   TEST(blocksize),
 #undef TEST
   {NULL, NULL}};

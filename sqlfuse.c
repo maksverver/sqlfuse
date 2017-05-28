@@ -291,7 +291,7 @@ static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     return REPLY_ERR(req, EIO);
   }
   size_t size_read = 0;
-  const int err = sqlfs_read(fuse_req_userdata(req), ino, off, buf, size, &size_read);
+  const int err = sqlfs_read(fuse_req_userdata(req), ino, off, size, buf, &size_read);
   if (err != 0) {
     REPLY_ERR(req, err);
   } else {
@@ -304,7 +304,7 @@ static void sqlfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
     size_t size, off_t off, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
   (void)fi;  // Unused
-  const int err = sqlfs_write(fuse_req_userdata(req), ino, off, buf, size);
+  const int err = sqlfs_write(fuse_req_userdata(req), ino, off, size, buf);
   if (err != 0) {
     REPLY_ERR(req, err);
   } else {
