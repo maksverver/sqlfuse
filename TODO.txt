@@ -19,6 +19,25 @@ Next:
   - Figure out which functions increase the 'lookup count' for an inode;
     document this somewhere.
   - Figure out what happens if an open directory is deleted?
+  - Revisit transaction functions (sql_begin_transaction() etc.): they currently
+    emulate nested transactions with savepoints. It might be less confusing if they
+    were named after the SQL statements they actually execute. Maybe the functions
+    that use transactions should be restructured as follows:
+
+      sql_savepoint(sqlfs);
+      int err = ...;
+      if (err != 0) {
+        goto failure;
+      }
+    success:
+      CHECK(err == 0);
+      goto finish;
+    failure:
+      CHECK(err != 0);
+      sql_rollback_to_savepoint(sqlfs);
+    finish:
+      sql_release_savepoint(sqlfs);
+      return err;
 
 Things to test:
   - open read-only database file (read operations should still succeed,

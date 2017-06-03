@@ -51,9 +51,9 @@
 #define NANOS_PER_SECOND 1000000000
 
 enum statements {
-  STMT_BEGIN_TRANSACTION,
-  STMT_COMMIT_TRANSACTION,
-  STMT_ROLLBACK_TRANSACTION,
+  STMT_SAVEPOINT,
+  STMT_RELEASE_SAVEPOINT,
+  STMT_ROLLBACK_TO_SAVEPOINT,
   STMT_STAT,
   STMT_STAT_ENTRY,
   STMT_LOOKUP,
@@ -85,14 +85,14 @@ static const struct Statement {
   int id;
   const char *sql;
 } statements[NUM_STATEMENTS + 1] = {
-  { STMT_BEGIN_TRANSACTION,
-    "BEGIN TRANSACTION"},
+  { STMT_SAVEPOINT,
+    "SAVEPOINT tx" },
 
-  { STMT_COMMIT_TRANSACTION,
-    "COMMIT TRANSACTION"},
+  { STMT_RELEASE_SAVEPOINT,
+    "RELEASE SAVEPOINT tx" },
 
-  { STMT_ROLLBACK_TRANSACTION,
-    "ROLLBACK TRANSACTION"},
+  { STMT_ROLLBACK_TO_SAVEPOINT,
+    "ROLLBACK TO SAVEPOINT tx" },
 
   { STMT_STAT,
 #define PARAM_STAT_INO   1
@@ -251,21 +251,22 @@ static void exec_sql(sqlite3 *db, const char *sql) {
 }
 
 static void sql_begin_transaction(struct sqlfs *sqlfs) {
-  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_BEGIN_TRANSACTION];
+  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
 }
 
 static void sql_commit_transaction(struct sqlfs *sqlfs) {
-  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_COMMIT_TRANSACTION];
+  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_RELEASE_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
 }
 
 static void sql_rollback_transaction(struct sqlfs *sqlfs) {
-  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_ROLLBACK_TRANSACTION];
+  sqlite3_stmt * const stmt = sqlfs->stmt[STMT_ROLLBACK_TO_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  sql_commit_transaction(sqlfs);
 }
 
 static bool sql_get_user_version(struct sqlfs *sqlfs, int64_t *user_version) {
