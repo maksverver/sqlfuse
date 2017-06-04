@@ -444,7 +444,16 @@ static void verify_directory_contents(const char *relpath, struct dirent expecte
     }
   }
   EXPECT_EQ(readdir_r(dir, &de, &de_ptr), 0);
-  EXPECT(de_ptr == NULL);
+  if (de_ptr != NULL) {
+    test_fail();
+    fprintf(stderr, "Directory [%s] has extra directory entries (expected only %d entries):\n", relpath, expected_size);
+    do {
+      fprintf(stderr, "\tdirent{ino=%lld, name=[%s], type=%d}\n",
+          (long long)de.d_ino, de.d_name, (int)de.d_type);
+      EXPECT_EQ(readdir_r(dir, &de, &de_ptr), 0);
+    } while (de_ptr != NULL);
+  }
+    CHECK(de_ptr == NULL);
   closedir(dir);
 }
 
