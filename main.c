@@ -155,7 +155,7 @@ int main(int argc, char *argv[]) {
 
     // BUG: this prints usage for the high-level FUSE API, while we're really
     // using the low-level API. TODO: fix this somehow?
-    fuse_main(argc, argv, NULL, NULL);
+    fuse_main(argc, argv, (const struct fuse_operations*)NULL, NULL);
     return 0;
   }
 
