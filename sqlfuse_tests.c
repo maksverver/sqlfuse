@@ -680,7 +680,7 @@ static void test_read_write() {
   teardown();
 }
 
-static void update_contents(const char *path, char *data, size_t size) {
+static void update_contents(const char *path, const char *data, size_t size) {
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC);
   EXPECT(fd >= 0);
   EXPECT_EQ(write(fd, data, size), size);
