@@ -256,7 +256,7 @@ static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
   struct sqlfs *const sqlfs = fuse_req_userdata(req);
-  ino_t child_ino = 0;
+  ino_t child_ino = SQLFS_INO_NONE;
   int err = sqlfs_unlink(sqlfs, parent, name, &child_ino);
   if (err == 0) {
     // TODO: only do this if lookup count is zero!

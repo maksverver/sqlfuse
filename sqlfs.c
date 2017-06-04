@@ -46,8 +46,6 @@
 
 #include "logging.h"
 
-#define ROOT_INO ((ino_t) 1)
-
 #define NANOS_PER_SECOND 1000000000
 
 enum statements {
@@ -335,7 +333,7 @@ static void create_root_directory(struct sqlfs *sqlfs) {
 
   const mode_t mode = (0777 &~ sqlfs->umask) | S_IFDIR;
   CHECK(prepare(sqlfs->db, "INSERT INTO metadata(ino, mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?, ?)", &stmt));
-  CHECK(sqlite3_bind_int64(stmt, 1, ROOT_INO) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, 1, SQLFS_INO_ROOT) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 2, mode) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 3, 1) == SQLITE_OK);  // nlink
   CHECK(sqlite3_bind_int64(stmt, 4, sqlfs->uid) == SQLITE_OK);
@@ -345,9 +343,9 @@ static void create_root_directory(struct sqlfs *sqlfs) {
   sqlite3_finalize(stmt);
 
   CHECK(prepare(sqlfs->db, "INSERT INTO direntries(dir_ino, entry_name, entry_ino, entry_type) VALUES (?, ?, ?, ?)", &stmt));
-  CHECK(sqlite3_bind_int64(stmt, 1, ROOT_INO) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, 1, SQLFS_INO_ROOT) == SQLITE_OK);
   CHECK(sqlite3_bind_text(stmt, 2, "", 0, SQLITE_STATIC) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 3, ROOT_INO) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, 3, SQLFS_INO_ROOT) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 4, mode >> 12) == SQLITE_OK);
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   sqlite3_finalize(stmt);
@@ -947,7 +945,7 @@ static int remove_impl(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, boo
   int err = -1;
 
   // Find the entry by its name in the given directory.
-  ino_t child_ino = 0;
+  ino_t child_ino = SQLFS_INO_NONE;
   mode_t child_mode = 0;
   err = lookup(sqlfs, dir_ino, name, &child_ino, &child_mode);
   if (err != 0) {
@@ -960,7 +958,7 @@ static int remove_impl(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, boo
       err = ENOTDIR;
       goto rollback;
     }
-    if (child_ino == ROOT_INO) {
+    if (child_ino == SQLFS_INO_ROOT) {
       err = EBUSY;
       goto rollback;
     }

@@ -11,6 +11,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#define SQLFS_INO_NONE ((ino_t) 0)
+#define SQLFS_INO_ROOT ((ino_t) 1)
+
 // The state for a single filesystem.
 struct sqlfs;
 
