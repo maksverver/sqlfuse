@@ -162,11 +162,12 @@ static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) 
   memset(&entry, 0, sizeof(entry));
   int err = sqlfs_stat_entry(fuse_req_userdata(req), parent, name, &entry.attr);
   if (err != 0) {
-    return REPLY_ERR(req, err);
+    REPLY_ERR(req, err);
+    return;
   }
   entry.ino = entry.attr.st_ino;
   entry.generation = GENERATION;
-  return REPLY_ENTRY(req, &entry);
+  REPLY_ENTRY(req, &entry);
 }
 
 static void sqlfuse_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup) {
@@ -181,7 +182,8 @@ static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
   struct stat attr;
   int err = sqlfs_stat(fuse_req_userdata(req), ino, &attr);
   if (err != 0) {
-    return REPLY_ERR(req, err);
+    REPLY_ERR(req, err);
+    return;
   }
   REPLY_ATTR(req, &attr);
 }
@@ -228,11 +230,12 @@ static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
   memset(&entry, 0, sizeof(entry));
   int err = sqlfs_mknod(fuse_req_userdata(req), parent, name, mode, &entry.attr);
   if (err != 0) {
-    return REPLY_ERR(req, err);
+    REPLY_ERR(req, err);
+    return;
   }
   entry.ino = entry.attr.st_ino;
   entry.generation = GENERATION;
-  return REPLY_ENTRY(req, &entry);
+  REPLY_ENTRY(req, &entry);
 }
 
 static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode) {
@@ -288,7 +291,8 @@ static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
   if (buf == NULL) {
     LOG("WARNING: unable to allocate %lld bytes!\n", (long long)size);
     // Return EIO because there doesn't seem to be a more suitable errno.
-    return REPLY_ERR(req, EIO);
+    REPLY_ERR(req, EIO);
+    return;
   }
   size_t size_read = 0;
   const int err = sqlfs_read(fuse_req_userdata(req), ino, off, size, buf, &size_read);
