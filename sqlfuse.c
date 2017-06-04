@@ -245,11 +245,12 @@ static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
   memset(&entry, 0, sizeof(entry));
   int err = sqlfs_mkdir(fuse_req_userdata(req), parent, name, mode, &entry.attr);
   if (err != 0) {
-    return REPLY_ERR(req, err);
+    REPLY_ERR(req, err);
+    return;
   }
   entry.ino = entry.attr.st_ino;
   entry.generation = GENERATION;
-  return REPLY_ENTRY(req, &entry);
+  REPLY_ENTRY(req, &entry);
 }
 
 static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
