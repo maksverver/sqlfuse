@@ -1,5 +1,4 @@
 Next:
-  - sqlfuse_rename()
   - verify rename() is used when unlinking an open file?
   - Lookup accounting!!! + sqlfuse_forget()
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)

@@ -268,20 +268,26 @@ static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) 
 static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
   struct sqlfs *const sqlfs = fuse_req_userdata(req);
-  ino_t child_ino = 0;
+  ino_t child_ino = SQLFS_INO_NONE;
   int err = sqlfs_rmdir(sqlfs, parent, name, &child_ino);
   if (err == 0) {
     // TODO: only do this if lookup count is zero!
     err = sqlfs_purge(sqlfs, child_ino);
   }
-  return REPLY_ERR(req, err);
+  REPLY_ERR(req, err);
 }
 
 static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     fuse_ino_t newparent, const char *newname) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(newparent), TRACE_STR(newname));
-  // TODO: implement this!
-  REPLY_ERR(req, ENOSYS);
+  struct sqlfs *const sqlfs = fuse_req_userdata(req);
+  ino_t unlinked_ino = SQLFS_INO_NONE;
+  int err = sqlfs_rename(sqlfs, parent, name, newparent, newname, &unlinked_ino);
+  if (err == 0 && unlinked_ino != SQLFS_INO_NONE) {
+    // TODO: only do this if lookup count is zero!
+    err = sqlfs_purge(sqlfs, unlinked_ino);
+  }
+  REPLY_ERR(req, err);
 }
 
 static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,

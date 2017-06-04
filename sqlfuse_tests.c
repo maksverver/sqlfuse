@@ -839,6 +839,160 @@ static void test_blocksize() {
   teardown();
 }
 
+static ino_t get_ino(const char *path) {
+  struct stat st;
+  int err = stat(path, &st);
+  EXPECT(err == 0 || errno == ENOENT);
+  if (err == 0) {
+    EXPECT(st.st_ino > 0);
+    return st.st_ino;
+  } else {
+    return 0;
+  }
+}
+
+static void test_rename() {
+  setup();
+
+  const char *const path_a = makepath("a");
+  const char *const path_a_file = makepath("a/file");
+  const char *const path_a_dir = makepath("a/dir");
+  const char *const path_a_dir_content = makepath("a/dir/dir-content");
+  const char *const path_b = makepath("b");
+  const char *const path_b_file = makepath("b/file");
+  const char *const path_b_dir = makepath("b/dir");
+
+  EXPECT_EQ(mkdir(path_a, 0700), 0);
+  EXPECT_EQ(mkdir(path_b, 0700), 0);
+  EXPECT_EQ(mknod(path_a_file, 0600, 0), 0);
+  EXPECT_EQ(mkdir(path_a_dir, 0700), 0);
+
+  // Add some content to the test file and directory, to be able to verify later
+  // that content was preserved across renames.
+  const char *file_content = "file-content";
+  update_contents(path_a_file, file_content, strlen(file_content));
+  EXPECT_EQ(mknod(path_a_dir_content, 0600, 0), 0);
+
+  const ino_t a_ino = get_ino(path_a);
+  const ino_t b_ino = get_ino(path_b);
+  const ino_t file_ino = get_ino(path_a_file);
+  const ino_t dir_ino = get_ino(path_a_dir);
+  const ino_t dir_content_ino = get_ino(path_a_dir_content);
+
+  EXPECT_EQ(rename(path_b_file, path_a_file), -1);
+  EXPECT_EQ(errno, ENOENT);
+  EXPECT_EQ(rename(path_b_dir, path_a_dir), -1);
+  EXPECT_EQ(errno, ENOENT);
+  EXPECT_EQ(rename(path_a_file, makepath("/nonexistent/a")), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  EXPECT_EQ(rename(path_a_file, path_b_file), 0);
+  EXPECT_EQ(rename(path_a_dir,  path_b_dir), 0);
+
+  // Directory /a is now empty:
+  verify_directory_contents("a", (struct dirent[]){
+      { .d_ino = a_ino,          .d_name = ".",  .d_type = DT_DIR },
+      { .d_ino = SQLFS_INO_ROOT, .d_name = "..", .d_type = DT_DIR },
+    }, 2);
+
+  // Directory /b contains the moved files:
+  verify_directory_contents("b", (struct dirent[]){
+      { .d_ino = b_ino,          .d_name = ".",    .d_type = DT_DIR },
+      { .d_ino = SQLFS_INO_ROOT, .d_name = "..",   .d_type = DT_DIR },
+      { .d_ino = dir_ino,        .d_name = "dir",  .d_type = DT_DIR },
+      { .d_ino = file_ino,       .d_name = "file", .d_type = DT_REG },
+    }, 4);
+
+  const char *const path_c = makepath("c");
+  const char *const path_c_file = makepath("c/file");
+  const char *const path_c_file2 = makepath("c/file2");
+  const char *const path_c_dir = makepath("c/dir");
+  const char *const path_c_dir_file = makepath("c/dir/file");
+
+  EXPECT_EQ(mkdir(path_c, 0700), 0);
+  EXPECT_EQ(mknod(path_c_file, 0600, 0), 0);
+  EXPECT_EQ(mkdir(path_c_dir, 0700), 0);
+  EXPECT_EQ(mknod(path_c_dir_file, 0600, 0), 0);
+
+  const ino_t c_ino = get_ino(path_c);
+
+  // Moving b/dir to c/dir should fail, because c/dir is not empty.
+  EXPECT_EQ(rename(path_b_dir, path_c_dir), -1);
+  EXPECT_EQ(errno, ENOTEMPTY);
+
+  EXPECT_EQ(unlink(path_c_dir_file), 0);
+
+  // Cannot rename file to an existing directory.
+  EXPECT_EQ(rename(path_b_file, path_c_dir), -1);
+  EXPECT_EQ(errno, EISDIR);
+
+  // Cannot rename directory to an existing file.
+  EXPECT_EQ(rename(path_b_dir, path_c_file), -1);
+  EXPECT_EQ(errno, ENOTDIR);
+
+  // Can rename file to an existing file.
+  EXPECT_EQ(rename(path_b_file, path_c_file), 0);
+
+  // Can rename directory to an existing directory.
+  EXPECT_EQ(rename(path_b_dir, path_c_dir), 0);
+
+  // Directory /b is now empty:
+  verify_directory_contents("b", (struct dirent[]){
+      { .d_ino = b_ino,          .d_name = ".",  .d_type = DT_DIR },
+      { .d_ino = SQLFS_INO_ROOT, .d_name = "..", .d_type = DT_DIR },
+    }, 2);
+
+  // Directory /c contains the moved files:
+  verify_directory_contents("c", (struct dirent[]){
+      { .d_ino = c_ino,          .d_name = ".",    .d_type = DT_DIR },
+      { .d_ino = SQLFS_INO_ROOT, .d_name = "..",   .d_type = DT_DIR },
+      { .d_ino = dir_ino,        .d_name = "dir",  .d_type = DT_DIR },
+      { .d_ino = file_ino,       .d_name = "file", .d_type = DT_REG },
+    }, 4);
+
+  // Test renaming entry to itself. Should be no-op if it exists.
+  EXPECT_EQ(rename(path_c_file, path_c_file), 0);
+  EXPECT_EQ(rename(path_c_dir, path_c_dir), 0);
+  EXPECT_EQ(rename(path_c_file2, path_c_file2), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  // Renaming file within the same directory succeeds.
+  EXPECT_EQ(rename(path_c_file, path_c_file2), 0);
+
+  // TODO: once hard-links are supported, we should also test this behavior:
+  //
+  //  If oldpath and newpath are existing hard links referring to the same file,
+  //  then rename() does nothing, and returns a success status.
+
+  // Verify content is unchanged.
+  verify_contents(path_c_file2, file_content, strlen(file_content));
+  verify_directory_contents("c/dir", (struct dirent[]){
+      { .d_ino = dir_ino,    .d_name = ".",    .d_type = DT_DIR },
+      { .d_ino = c_ino,      .d_name = "..",   .d_type = DT_DIR },
+      { .d_ino = dir_content_ino, .d_name = "dir-content", .d_type = DT_REG },
+    }, 3);
+
+  // Check link counts (since we moved subdirectories around).
+  struct stat attr;
+  EXPECT_EQ(stat(path_a, &attr), 0);
+  EXPECT_EQ(attr.st_nlink, 2);
+  EXPECT_EQ(stat(path_b, &attr), 0);
+  EXPECT_EQ(attr.st_nlink, 2);
+  EXPECT_EQ(stat(path_c, &attr), 0);
+  EXPECT_EQ(attr.st_nlink, 3);
+
+  // Can't move a directory into itself, or into a subdirectory of itself!
+  // Doing so would create a cycle in the directory structure.
+  const char *const path_a_subdir = makepath("a/subdir");
+  EXPECT_EQ(rename(path_a, path_a_subdir), -1);
+  EXPECT_EQ(errno, EINVAL);
+  EXPECT_EQ(mkdir(path_a_subdir, 0700), 0);
+  EXPECT_EQ(rename(path_a, path_a_subdir), -1);
+  EXPECT_EQ(errno, EINVAL);
+
+  teardown();
+}
+
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
@@ -854,6 +1008,7 @@ static const struct test_case tests[] = {
   TEST(truncate),
   TEST(write_edgecases),
   TEST(blocksize),
+  TEST(rename),
 #undef TEST
   {NULL, NULL}};
 

@@ -63,8 +63,10 @@ enum statements {
   STMT_COUNT_DIRENTRIES,
   STMT_DELETE_DIRENTRIES,
   STMT_DELETE_DIRENTRIES_BY_NAME,
+  STMT_REPARENT_DIRECTORY,
   STMT_READ_DIRENTRIES,
   STMT_READ_DIRENTRIES_START,
+  STMT_RENAME,
   STMT_READ_FILEDATA,
   STMT_UPDATE_FILEDATA,
   STMT_DELETE_FILEDATA,
@@ -166,6 +168,11 @@ static const struct Statement {
 #define PARAM_DELETE_DIRENTRIES_BY_NAME_ENTRY_NAME 2
     "DELETE FROM direntries WHERE dir_ino = ? AND entry_name = ?" },
 
+  { STMT_REPARENT_DIRECTORY,
+#define PARAM_REPARENT_DIRECTORY_NEW_PARENT_INO 1
+#define PARAM_REPARENT_DIRECTORY_CHILD_INO      2
+    "UPDATE direntries SET entry_ino = ? WHERE dir_ino = ? AND entry_name = ''" },
+
   { STMT_READ_DIRENTRIES,
 #define PARAM_READ_DIRENTRIES_DIR_INO  1
 #define COL_READ_DIRENTRIES_ENTRY_NAME 0
@@ -179,6 +186,13 @@ static const struct Statement {
 #define PARAM_READ_DIRENTRIES_START_DIR_INO    1
 #define PARAM_READ_DIRENTRIES_START_ENTRY_NAME 2
     SELECT_DIRENTRIES " WHERE dir_ino = ? AND entry_name >= ? " ORDER_DIRENTRIES },
+
+  { STMT_RENAME,
+#define PARAM_RENAME_NEW_DIR_INO    1
+#define PARAM_RENAME_NEW_ENTRY_NAME 2
+#define PARAM_RENAME_OLD_DIR_INO    3
+#define PARAM_RENAME_OLD_ENTRY_NAME 4
+    "UPDATE direntries SET dir_ino = ?, entry_name = ? WHERE dir_ino = ? AND entry_name = ?" },
 
   { STMT_READ_FILEDATA,
 #define PARAM_READ_FILEDATA_INO      1
@@ -625,6 +639,25 @@ static int sql_delete_direntry(struct sqlfs *sqlfs, ino_t dir_ino, const char *e
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
+// Changes the parent directory reference for the child directory with the given
+// inode number.
+//
+// The caller must ensure that child_ino is an existing directory, and that no
+// cycles are introduced by the reparenting operation. This function only
+// updates the direntries table. It is the caller's responsibility to update the
+// link count for the directories.
+//
+// Returns 0 on succes, or EIO if a database operation fails.
+static int sql_reparent_directory(struct sqlfs *sqlfs, ino_t child_ino, ino_t new_parent_ino) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_REPARENT_DIRECTORY];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_REPARENT_DIRECTORY_NEW_PARENT_INO, new_parent_ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_REPARENT_DIRECTORY_CHILD_INO, child_ino) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  return status == SQLITE_DONE && sqlite3_changes(sqlfs->db) == 1 ? 0 : EIO;
+}
+
 // Deletes all entries in the given directory. This includes the empty entry
 // (corresponding to "..") so afterwards, the directory is in an invalid state,
 // and its metadata should be removed separately.
@@ -640,6 +673,31 @@ static int sql_delete_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
   CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
   return status == SQLITE_DONE ? 0 : EIO;
+}
+
+// Renames a directory entry and/or moves it a different directory.
+//
+// The caller must ensure that:
+//
+//  - old_dir_ino and new_dir_ino refer to directories
+//  - the entry identified by (old_dir_ino, old_entry_name) exists
+//  - the entry identified by (new_dir_ino, new_entry_name) does not exist
+//  - no cycles are introduced by moving the old entry into the new directory
+//
+// Returns 0 on success, or EIO if the database operation fails (possibly
+// because one of the constraints outlined above was violated).
+static int sql_rename(struct sqlfs *sqlfs,
+    ino_t old_dir_ino, const char *old_entry_name,
+    ino_t new_dir_ino, const char *new_entry_name) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_RENAME];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_RENAME_NEW_DIR_INO, new_dir_ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_text(stmt, PARAM_RENAME_NEW_ENTRY_NAME, new_entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_RENAME_OLD_DIR_INO, old_dir_ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_text(stmt, PARAM_RENAME_OLD_ENTRY_NAME, old_entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  return status == SQLITE_DONE && sqlite3_changes(sqlfs->db) == 1 ? 0 : EIO;
 }
 
 // Reads filedata bytes from the given file into a buffer.
@@ -935,11 +993,25 @@ finish:
 
 // Unlinks a file (if dir == false) or a directory (if dir == true).
 //
-// Used to implement sqlfs_rmdir() and sqlfs_unlink().
+// Used to implement sqlfs_rmdir(), sqlfs_unlink(), and sqlfs_rename().
+//
+// On success, this function returns 0 and the inode number of the removed entry
+// is written to *child_ino_out.
 //
 // Minor bug: this function should technicaly return ENOTDIR instead of ENOENT if
-// dir_ino does not refer to a directory. (Perhaps this isn't an issue in practice, if
-// FUSE verifies dir_ino refers to a directory before calling this function.)
+// dir_ino does not refer to a directory. (Perhaps this isn't an issue in practice,
+// since FUSE verifies dir_ino refers to a directory before calling any filesystem
+// implementation functions.)
+//
+// Returns:
+//  0 on success
+//  ENOENT if the referenced entry does not exist
+//  EINVAL if name was empty or '.'
+//  EBUSY if the entry referred to the root directory (which cannot be removed)
+//  EIO if a database operation failed
+//  ENOTDIR if (dir == true) and the entry does not refer to a directory
+//  EISDIR if (dir == false) and the entry does not refer to a file
+//  ENOTEMPTY if (dir == true) and the entry refers to a directory which is not empty
 static int remove_impl(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, bool dir, ino_t *child_ino_out) {
   sql_begin_transaction(sqlfs);
   int err = -1;
@@ -1166,7 +1238,7 @@ static int resize_filedata(struct sqlfs *sqlfs, ino_t ino, off_t old_size, off_t
   char *block = calloc(blksize, 1);
   if (block == NULL) {
     LOG("[%s:%d] %s(dir_ino=%lld): unable to allocate %lld bytes!\n",
-      __FILE__, __LINE__, __func__, (long long)ino, (long long)blksize);
+        __FILE__, __LINE__, __func__, (long long)ino, (long long)blksize);
     // Return EIO because there doesn't seem to be a more suitable errno.
     return EIO;
   }
@@ -1414,7 +1486,7 @@ int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, const ch
         temp_block = malloc(chunk_size);
         if (temp_block == NULL) {
           LOG("[%s:%d] %s(dir_ino=%lld): unable to allocate %lld bytes!\n",
-            __FILE__, __LINE__, __func__, (long long)ino, (long long)blksize);
+              __FILE__, __LINE__, __func__, (long long)ino, (long long)blksize);
           // Return EIO because there doesn't seem to be a more suitable errno.
           err = EIO;
           goto failure;
@@ -1476,5 +1548,96 @@ failure:
 
 cleanup:
   free(temp_block);
+  return err;
+}
+
+int sqlfs_rename(struct sqlfs *sqlfs, ino_t old_parent_ino, const char *old_name, ino_t new_parent_ino, const char *new_name, ino_t *old_ino) {
+
+  *old_ino = SQLFS_INO_NONE;
+
+  if (name_kind(old_name) != NAME_REGULAR ||
+      name_kind(new_name) != NAME_REGULAR) {
+    return EINVAL;
+  }
+
+  int err = -1;
+  sql_begin_transaction(sqlfs);
+
+  struct stat old_parent_attr;
+  struct stat new_parent_attr;
+  struct stat old_entry_attr;
+  struct stat new_entry_attr;
+
+  err = sqlfs_stat(sqlfs, old_parent_ino, &old_parent_attr);
+  if (err != 0) {
+    goto failure;
+  }
+  if (!S_ISDIR(old_parent_attr.st_mode)) {
+    err = ENOTDIR;
+    goto failure;
+  }
+
+  err = sqlfs_stat(sqlfs, new_parent_ino, &new_parent_attr);
+  if (err != 0) {
+    goto failure;
+  }
+  if (!S_ISDIR(new_parent_attr.st_mode)) {
+    err = ENOTDIR;
+    goto failure;
+  }
+
+  err = sqlfs_stat_entry(sqlfs, old_parent_ino, old_name, &old_entry_attr);
+  if (err != 0) {
+    goto failure;
+  }
+  const bool is_dir = S_ISDIR(old_entry_attr.st_mode);
+
+  err = sqlfs_stat_entry(sqlfs, new_parent_ino, new_name, &new_entry_attr);
+  if (err == ENOENT) {
+    // New entry does not exist. This is normal.
+    err = 0;
+  } else if (err != 0) {
+    // Some other error. Abort!
+    goto failure;
+  } else if (old_entry_attr.st_ino == new_entry_attr.st_ino) {
+    // From man rename(2):
+    //
+    //   If oldpath and newpath are existing hard links referring to the same
+    //   file, then rename() does nothing, and returns a success status.
+    //
+    // (This doesn't make a lot of sense to me, but it does solve the edge case
+    // where the old and the new file are the same.)
+    err = 0;
+    goto success;
+  } else {
+    // New entry exists. Try to remove it first.
+    err = remove_impl(sqlfs, new_parent_ino, new_name, is_dir, old_ino);
+    if (err != 0) {
+      goto failure;
+    }
+  }
+
+  // Now the new entry doesn't exist. Rename the old to the new entry.
+  err = sql_rename(sqlfs, old_parent_ino, old_name, new_parent_ino, new_name);
+  if (err != 0) {
+    goto failure;
+  }
+  if (is_dir && old_parent_ino != new_parent_ino) {
+    // If we moved a child directory to a different subdirectory, we must update
+    // the child directory's parent reference, and adjust the old and new parent's
+    // link count accordingly.
+    sql_reparent_directory(sqlfs, old_entry_attr.st_ino, new_parent_ino);
+    sql_dec_nlink(sqlfs, old_parent_ino);
+    sql_inc_nlink(sqlfs, new_parent_ino);
+  }
+
+success:
+  CHECK(err == 0);
+  sql_commit_transaction(sqlfs);
+  return 0;
+
+failure:
+  CHECK(err != 0);
+  sql_rollback_transaction(sqlfs);
   return err;
 }

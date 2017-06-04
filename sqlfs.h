@@ -237,4 +237,37 @@ int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, char *buf
 //  EIO if a database operation failed
 int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, const char *buf);
 
+// Renames a file/directory and/or moves it to a different directory.
+//
+// The old entry (described by old_parent_ino and old_name) must exist. The new
+// entry (described by new_parent_ino and new_name) may or may not exist. If it
+// exists, then the type of the old entry must match the type of the new entry,
+// and the pre-existing entry will be unlinked (if it's a file) or removed (if
+// it's an empty directory).
+//
+// If the old and new entries are hardlinks to the same file, then this function
+// does nothing but returns succesfully. (This behavior is consistent with the
+// behavior of rename().)
+//
+// On success, the inode number of the unlinked file or directory is written to
+// *unlinked_ino. If there was no previous entry for the new name, then the
+// value will be set to SQLFS_INO_NONE.
+//
+// IMPORTANT LIMITATION: it should not be possible to rename a directory to a
+// subdirectory of itself (because this would create an unreachable cycle in the
+// filesystem), but this function does not enforce this! That means that the
+// caller must ensure this doesn't happen.
+//
+// Returns:
+//  0 on success
+//  EINVAL if either the old or the new names is not a regular file names
+//  ENOENT if the old entry or the new directory does not exist
+//  ENOTDIR if the old entry is a directory, but the new entry is not
+//  EISDIR if the old entry is a file, but the new entry is a directory
+//  ENOTEMPTY if the new entry is a directory which is not empty
+//  EIO if a database operation failed
+int sqlfs_rename(struct sqlfs *sqlfs,
+    ino_t old_parent_ino, const char *old_name,
+    ino_t new_parent_ino, const char *new_name, ino_t *unlinked_ino);
+
 #endif
