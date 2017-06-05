@@ -186,7 +186,6 @@ int main(int argc, char *argv[]) {
   }
   if (!sqlfs) {
     fprintf(stderr, "Failed to open database '%s'.\n", args.filepath);
-    fclose(stderr);
     return 1;
   }
   int err = sqlfuse_main(argc, argv, sqlfs);
