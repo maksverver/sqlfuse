@@ -27,6 +27,7 @@
 #include "fuse.h"
 #include "fuse_lowlevel.h"
 
+#include "intmap.h"
 #include "logging.h"
 #include "sqlfs.h"
 #include "sqlfuse.h"
@@ -48,6 +49,7 @@ static char *testdir;
 static char *mountpoint;
 static char *database;
 static struct sqlfs *sqlfs;
+static struct intmap *lookups;
 static struct sqlfuse_userdata sqlfuse_userdata;
 static struct fuse_args fuse_args;
 static struct fuse_chan *fuse_chan;
@@ -147,7 +149,11 @@ static void setup() {
   sqlfs = sqlfs_create(database, NULL /*password*/, 022 /* umask */, geteuid(), getegid());
   CHECK(sqlfs);
 
+  lookups = intmap_create();
+  CHECK(lookups);
+
   sqlfuse_userdata.sqlfs = sqlfs;
+  sqlfuse_userdata.lookups = lookups;
 
   char *argv[2] = {"test", NULL};
   memset(&fuse_args, 0, sizeof(fuse_args));
@@ -188,10 +194,13 @@ static void teardown() {
   fuse_session = NULL;
   memset(&fuse_args, 0, sizeof(fuse_args));
 
-  sqlfuse_userdata.sqlfs = NULL;
-
   sqlfs_destroy(sqlfs);
-  sqlfs = NULL;
+  sqlfuse_userdata.sqlfs = sqlfs = NULL;
+
+  // Uncomment the line below once TODOs in sqlfuse_destroy() are implemented.
+  // EXPECT_EQ(intmap_size(lookups), 0);
+  intmap_destroy(lookups);
+  sqlfuse_userdata.lookups = lookups = NULL;
 
   if (sqlite_path_for_dump) {
     pid_t pid = fork();

@@ -1,6 +1,6 @@
 Next:
+  - Purge inodes in sqlfuse_destroy()
   - verify rename() is used when unlinking an open file?
-  - Lookup accounting!!! + sqlfuse_forget()
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
   - Test if other filesystems support creating files/subdirectories in unlinked
     directories (using unlink()/createnodat()?). How should I handle that case?
@@ -15,9 +15,10 @@ Next:
     Exit with an error if a mountpoint is specified in the first case.
   - CLI: if creating the database fails, should we delete the partially-created
     database file (which will be empty)?
-  - Figure out which functions increase the 'lookup count' for an inode;
-    document this somewhere.
   - Figure out what happens if an open directory is deleted?
+  - Create a logging mode where we log warnings/errors but don't print function
+    call traces? (This would be useful for normal foreground use.) Maybe just
+    write to stderr directly for important errors/warnings?
   - Revisit transaction functions (sql_begin_transaction() etc.): they currently
     emulate nested transactions with savepoints. It might be less confusing if they
     were named after the SQL statements they actually execute. Maybe the functions
@@ -39,6 +40,8 @@ Next:
       return err;
 
 Things to test:
+  - some manual smoke-testing: verify that files are actually purged during
+    normal operation (auto-create a bunch of files and delete them?)
   - open read-only database file (read operations should still succeed,
     write operations should fail gracefully, without crashing)
   - sqlfs tests with encryption (no setup/teardown)
@@ -109,3 +112,19 @@ Things I learned about fuse:
 
   - TODO: go over other mount options? (For example, we do support returning
     inos in readdir().)
+
+  - Lookup accounting: I/O may be performed on files and directories after they
+    are deleted. To track which entries are still active, the kernel module
+    maintains a lookup count per inode number.
+
+      - Each time an inode number is sent to the kernel with fuse_reply_entry()
+        or fuse_reply_create(), its lookup count increases by 1. (We don't
+        implement create(), so we can ignore the second function.)
+      - Each time an inode number is passed to forget(), its lookup count
+        decreases by 1.
+      - When an inode number's lookup count reaches zero, and its link count is
+        zero, then it may be permanently deleted. (We implement this in
+        sqlfs_purge(), which removes a file but only if its link count is zero.)
+      - It's not guaranteed that all inode numbers are forgotten before
+        destroy() is called (when the filesystem is unmounted), so on destroy,
+        we should purge all entries with positive lookup count.

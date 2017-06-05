@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "intmap.h"
 #include "logging.h"
 #include "sqlfs.h"
 
@@ -79,6 +80,40 @@ static void trace_str(FILE *fp, const char *key, const char *value) {
   fputc('"', fp);
 }
 
+static struct sqlfuse_userdata* req_userdata(fuse_req_t req) {
+  return fuse_req_userdata(req);
+}
+
+static struct sqlfs *req_sqlfs(fuse_req_t req) {
+  return req_userdata(req)->sqlfs;
+}
+
+static struct intmap *req_lookups(fuse_req_t req) {
+  return req_userdata(req)->lookups;
+}
+
+// Lookup accounting: decrease an inode's lookup count, and purge it if it
+// becomes zero.
+//
+// Returns the result of sqlfs_purge() if the inode was purged, or 0 otherwise.
+static int forget(struct sqlfuse_userdata *userdata, ino_t ino, int64_t nlookup) {
+  CHECK(nlookup >= 0);
+  int64_t new_count = intmap_update(userdata->lookups, ino, -nlookup);
+  if (new_count < 0) {
+    // This should never happen, unless there is some inconsistency between how
+    // FUSE and I account for lookups!
+    LOG("WARNING: negative lookup count %lld for inode number %lld!", (long long)new_count, (long long)ino);
+  }
+  if (new_count > 0) {
+    return 0;
+  }
+  return sqlfs_purge(userdata->sqlfs, ino);
+}
+
+static int maybe_purge(struct sqlfuse_userdata *userdata, ino_t ino) {
+  return forget(userdata, ino, 0);
+}
+
 static void sqlfuse_init(void *userdata, struct fuse_conn_info *conn) {
   TRACE();
   (void)userdata, (void)conn;  // Unused.
@@ -87,6 +122,9 @@ static void sqlfuse_init(void *userdata, struct fuse_conn_info *conn) {
 static void sqlfuse_destroy(void *userdata) {
   TRACE();
   (void)userdata;  // Unused.
+
+  // TODO: purge all inodes that still have a positive lookup count!
+  // TODO: add a unit test for this?
 }
 
 #define REPLY_NONE(req) reply_none(__FILE__, __LINE__, __func__, req)
@@ -112,11 +150,14 @@ static void reply_err(const char *file, int line, const char *func, fuse_req_t r
 
 static void reply_entry(const char *file, int line, const char *func, fuse_req_t req, const struct fuse_entry_param *entry) {
   LOG("[%s:%d] %s() <- entry{ino=%lld}\n", file, line, func, (long long)entry->ino);
+  // Must grab lookups pointer first, because `req` is invalid after calling fuse_reply_entry!
+  struct intmap *const lookups = req_lookups(req);
   int res = fuse_reply_entry(req, entry);
   if (res != 0) {
     LOG("WARNING: fuse_reply_entry() returned %d\n", res);
   } else {
-    // TODO: accounting of lookup counts!
+    // Lookup accounting: increase lookup count.
+    intmap_update(lookups, entry->ino, 1);
   }
 }
 
@@ -155,10 +196,6 @@ static void reply_write(const char *file, int line, const char *func, fuse_req_t
   }
 }
 
-static struct sqlfs *req_sqlfs(fuse_req_t req) {
-  return ((struct sqlfuse_userdata*)fuse_req_userdata(req))->sqlfs;
-}
-
 static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
 
@@ -175,8 +212,14 @@ static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) 
 }
 
 static void sqlfuse_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup) {
-  // TODO: implement this!
   TRACE(TRACE_UINT(ino), TRACE_UINT(nlookup));
+  CHECK(nlookup < INT64_MAX);
+  int err = forget(req_userdata(req), ino, (int64_t)nlookup);
+  if (err != 0) {
+    // This is a pretty serious condition: we failed to purge a deleted file or
+    // directory, but we can't report the error upstream.
+    LOG("ERROR: failed to purge ino=%lld (err=%d)!", (long long)ino, err);
+  }
   REPLY_NONE(req);
 }
 
@@ -259,24 +302,22 @@ static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 
 static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
-  struct sqlfs *const sqlfs = req_sqlfs(req);
+  struct sqlfuse_userdata *const userdata = req_userdata(req);
   ino_t child_ino = SQLFS_INO_NONE;
-  int err = sqlfs_unlink(sqlfs, parent, name, &child_ino);
+  int err = sqlfs_unlink(userdata->sqlfs, parent, name, &child_ino);
   if (err == 0) {
-    // TODO: only do this if lookup count is zero!
-    err = sqlfs_purge(sqlfs, child_ino);
+    err = maybe_purge(userdata, child_ino);
   }
   REPLY_ERR(req, err);
 }
 
 static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
-  struct sqlfs *const sqlfs = req_sqlfs(req);
+  struct sqlfuse_userdata *const userdata = req_userdata(req);
   ino_t child_ino = SQLFS_INO_NONE;
-  int err = sqlfs_rmdir(sqlfs, parent, name, &child_ino);
+  int err = sqlfs_rmdir(userdata->sqlfs, parent, name, &child_ino);
   if (err == 0) {
-    // TODO: only do this if lookup count is zero!
-    err = sqlfs_purge(sqlfs, child_ino);
+    err = maybe_purge(userdata, child_ino);
   }
   REPLY_ERR(req, err);
 }
@@ -284,12 +325,11 @@ static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
 static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     fuse_ino_t newparent, const char *newname) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(newparent), TRACE_STR(newname));
-  struct sqlfs *const sqlfs = req_sqlfs(req);
+  struct sqlfuse_userdata *const userdata = req_userdata(req);
   ino_t unlinked_ino = SQLFS_INO_NONE;
-  int err = sqlfs_rename(sqlfs, parent, name, newparent, newname, &unlinked_ino);
+  int err = sqlfs_rename(userdata->sqlfs, parent, name, newparent, newname, &unlinked_ino);
   if (err == 0 && unlinked_ino != SQLFS_INO_NONE) {
-    // TODO: only do this if lookup count is zero!
-    err = sqlfs_purge(sqlfs, unlinked_ino);
+    err = maybe_purge(userdata, unlinked_ino);
   }
   REPLY_ERR(req, err);
 }

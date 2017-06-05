@@ -11,6 +11,7 @@
 #include "fuse.h"
 #include "fuse_lowlevel.h"
 
+#include "intmap.h"
 #include "logging.h"
 #include "sqlfs.h"
 #include "sqlfuse.h"
@@ -24,7 +25,7 @@ static mode_t getumask() {
 
 // Runs the FUSE low-level main loop. Returns 0 on success.
 // Based on: https://github.com/libfuse/libfuse/blob/fuse_2_6_bugfix/example/hello_ll.c
-static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs) {
+static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs, struct intmap *lookups) {
   int err = -1;
   struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
   char *mountpoint = NULL;
@@ -39,7 +40,7 @@ static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs) {
 
     struct fuse_chan *chan = fuse_mount(mountpoint, &args);
     if (chan != NULL) {
-      struct sqlfuse_userdata sqlfuse_userdata = { .sqlfs = sqlfs };
+      struct sqlfuse_userdata sqlfuse_userdata = { .sqlfs = sqlfs, .lookups = lookups };
       struct fuse_session *session = fuse_lowlevel_new(
           &args, &sqlfuse_ops, sizeof(sqlfuse_ops), &sqlfuse_userdata);
       if (session != NULL) {
@@ -188,7 +189,14 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Failed to open database '%s'.\n", args.filepath);
     return 1;
   }
-  int err = sqlfuse_main(argc, argv, sqlfs);
+  struct intmap *lookups = intmap_create();
+  if (lookups == NULL) {
+    fprintf(stderr, "Failed to create intmap.\n");
+    sqlfs_destroy(sqlfs);
+    return 1;
+  }
+  int err = sqlfuse_main(argc, argv, sqlfs, lookups);
+  intmap_destroy(lookups);
   sqlfs_destroy(sqlfs);
   return err ? 1 : 0;
 }

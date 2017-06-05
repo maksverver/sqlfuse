@@ -11,6 +11,7 @@
 
 struct sqlfuse_userdata {
   struct sqlfs *sqlfs;
+  struct intmap *lookups;
 };
 
 extern const struct fuse_lowlevel_ops sqlfuse_ops;
