@@ -48,6 +48,7 @@ static char *testdir;
 static char *mountpoint;
 static char *database;
 static struct sqlfs *sqlfs;
+static struct sqlfuse_userdata sqlfuse_userdata;
 static struct fuse_args fuse_args;
 static struct fuse_chan *fuse_chan;
 static struct fuse_session *fuse_session;
@@ -146,6 +147,8 @@ static void setup() {
   sqlfs = sqlfs_create(database, NULL /*password*/, 022 /* umask */, geteuid(), getegid());
   CHECK(sqlfs);
 
+  sqlfuse_userdata.sqlfs = sqlfs;
+
   char *argv[2] = {"test", NULL};
   memset(&fuse_args, 0, sizeof(fuse_args));
   fuse_args.argc = 1;
@@ -156,7 +159,7 @@ static void setup() {
   }
   fuse_chan = fuse_mount(mountpoint, &fuse_args);
   CHECK(fuse_chan);
-  fuse_session = fuse_lowlevel_new(&fuse_args, &sqlfuse_ops, sizeof(sqlfuse_ops), sqlfs /* userdata */);
+  fuse_session = fuse_lowlevel_new(&fuse_args, &sqlfuse_ops, sizeof(sqlfuse_ops), &sqlfuse_userdata);
   CHECK(fuse_session);
   fuse_session_add_chan(fuse_session, fuse_chan);
   fuse_set_signal_handlers(fuse_session);
@@ -184,6 +187,8 @@ static void teardown() {
   fuse_chan = NULL;
   fuse_session = NULL;
   memset(&fuse_args, 0, sizeof(fuse_args));
+
+  sqlfuse_userdata.sqlfs = NULL;
 
   sqlfs_destroy(sqlfs);
   sqlfs = NULL;

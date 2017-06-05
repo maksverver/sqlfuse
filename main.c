@@ -39,8 +39,9 @@ static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs) {
 
     struct fuse_chan *chan = fuse_mount(mountpoint, &args);
     if (chan != NULL) {
+      struct sqlfuse_userdata sqlfuse_userdata = { .sqlfs = sqlfs };
       struct fuse_session *session = fuse_lowlevel_new(
-          &args, &sqlfuse_ops, sizeof(sqlfuse_ops), sqlfs /* userdata */);
+          &args, &sqlfuse_ops, sizeof(sqlfuse_ops), &sqlfuse_userdata);
       if (session != NULL) {
 
         // Daemonization happens here! Afterwards, the cwd will be / and output

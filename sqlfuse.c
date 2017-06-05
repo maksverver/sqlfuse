@@ -155,12 +155,16 @@ static void reply_write(const char *file, int line, const char *func, fuse_req_t
   }
 }
 
+static struct sqlfs *req_sqlfs(fuse_req_t req) {
+  return ((struct sqlfuse_userdata*)fuse_req_userdata(req))->sqlfs;
+}
+
 static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
 
   struct fuse_entry_param entry;
   memset(&entry, 0, sizeof(entry));
-  int err = sqlfs_stat_entry(fuse_req_userdata(req), parent, name, &entry.attr);
+  int err = sqlfs_stat_entry(req_sqlfs(req), parent, name, &entry.attr);
   if (err != 0) {
     REPLY_ERR(req, err);
     return;
@@ -180,7 +184,7 @@ static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
   TRACE(TRACE_UINT(ino));
   (void)fi;  // Unused. (Reserved by FUSE for future use. Should be NULL, now.)
   struct stat attr;
-  int err = sqlfs_stat(fuse_req_userdata(req), ino, &attr);
+  int err = sqlfs_stat(req_sqlfs(req), ino, &attr);
   if (err != 0) {
     REPLY_ERR(req, err);
     return;
@@ -215,7 +219,7 @@ static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
   // Note: FUSE_SET_ATTR_ATIME will be ignored.
 
   struct stat new_attr;
-  int err = sqlfs_set_attr(fuse_req_userdata(req), ino, attr, sqlfs_to_set, &new_attr);
+  int err = sqlfs_set_attr(req_sqlfs(req), ino, attr, sqlfs_to_set, &new_attr);
   if (err == 0) {
     REPLY_ATTR(req, &new_attr);
   } else {
@@ -228,7 +232,7 @@ static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
   TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode), TRACE_UINT(rdev));
   struct fuse_entry_param entry;
   memset(&entry, 0, sizeof(entry));
-  int err = sqlfs_mknod(fuse_req_userdata(req), parent, name, mode, &entry.attr);
+  int err = sqlfs_mknod(req_sqlfs(req), parent, name, mode, &entry.attr);
   if (err != 0) {
     REPLY_ERR(req, err);
     return;
@@ -243,7 +247,7 @@ static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 
   struct fuse_entry_param entry;
   memset(&entry, 0, sizeof(entry));
-  int err = sqlfs_mkdir(fuse_req_userdata(req), parent, name, mode, &entry.attr);
+  int err = sqlfs_mkdir(req_sqlfs(req), parent, name, mode, &entry.attr);
   if (err != 0) {
     REPLY_ERR(req, err);
     return;
@@ -255,7 +259,7 @@ static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 
 static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
-  struct sqlfs *const sqlfs = fuse_req_userdata(req);
+  struct sqlfs *const sqlfs = req_sqlfs(req);
   ino_t child_ino = SQLFS_INO_NONE;
   int err = sqlfs_unlink(sqlfs, parent, name, &child_ino);
   if (err == 0) {
@@ -267,7 +271,7 @@ static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) 
 
 static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name));
-  struct sqlfs *const sqlfs = fuse_req_userdata(req);
+  struct sqlfs *const sqlfs = req_sqlfs(req);
   ino_t child_ino = SQLFS_INO_NONE;
   int err = sqlfs_rmdir(sqlfs, parent, name, &child_ino);
   if (err == 0) {
@@ -280,7 +284,7 @@ static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
 static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     fuse_ino_t newparent, const char *newname) {
   TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(newparent), TRACE_STR(newname));
-  struct sqlfs *const sqlfs = fuse_req_userdata(req);
+  struct sqlfs *const sqlfs = req_sqlfs(req);
   ino_t unlinked_ino = SQLFS_INO_NONE;
   int err = sqlfs_rename(sqlfs, parent, name, newparent, newname, &unlinked_ino);
   if (err == 0 && unlinked_ino != SQLFS_INO_NONE) {
@@ -302,7 +306,7 @@ static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     return;
   }
   size_t size_read = 0;
-  const int err = sqlfs_read(fuse_req_userdata(req), ino, off, size, buf, &size_read);
+  const int err = sqlfs_read(req_sqlfs(req), ino, off, size, buf, &size_read);
   if (err != 0) {
     REPLY_ERR(req, err);
   } else {
@@ -315,7 +319,7 @@ static void sqlfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
     size_t size, off_t off, struct fuse_file_info *fi) {
   TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
   (void)fi;  // Unused
-  const int err = sqlfs_write(fuse_req_userdata(req), ino, off, size, buf);
+  const int err = sqlfs_write(req_sqlfs(req), ino, off, size, buf);
   if (err != 0) {
     REPLY_ERR(req, err);
   } else {
@@ -361,7 +365,7 @@ static void sqlfuse_readdir(fuse_req_t req, fuse_ino_t ino,
     CHECK(pos <= size);
   }
 
-  struct sqlfs *sqlfs = fuse_req_userdata(req);
+  struct sqlfs *const sqlfs = req_sqlfs(req);
   sqlfs_dir_open(sqlfs, ino, dir_handle->next_name);
   free(dir_handle->next_name);
   dir_handle->next_name = NULL;

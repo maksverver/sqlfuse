@@ -865,7 +865,6 @@ void sqlfs_destroy(struct sqlfs *sqlfs) {
   //  "Applications should finalize all prepared statements, close all BLOB
   //   handles, and finish all sqlite3_backup objects associated with the
   //   sqlite3 object prior to attempting to close the object."
-  // TODO: make sure that has actually happened!
   CHECK(sqlfs);
   CHECK(sqlfs->dir_stmt == NULL);
   for (int i = 0; i < NUM_STATEMENTS; ++i) {
