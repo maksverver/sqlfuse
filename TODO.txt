@@ -1,6 +1,4 @@
 Next:
-  - Purge inodes in sqlfuse_destroy()
-  - verify rename() is used when unlinking an open file?
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
   - Test if other filesystems support creating files/subdirectories in unlinked
     directories (using unlink()/createnodat()?). How should I handle that case?

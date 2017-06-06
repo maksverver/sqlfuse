@@ -58,6 +58,8 @@ struct dir_handle {
     } \
   } while(0)
 
+#define TRACE_END() LOG("[%s:%d] %s() <-\n", __FILE__, __LINE__, __func__)
+
 #define TRACE_INT(i) fprintf(stderr, " %s=%lld", #i, (long long)i);
 #define TRACE_UINT(ui) fprintf(stderr, " %s=%llu", #ui, (unsigned long long)ui)
 #define TRACE_STR(s) trace_str(stderr, #s, s)
@@ -117,14 +119,23 @@ static int maybe_purge(struct sqlfuse_userdata *userdata, ino_t ino) {
 static void sqlfuse_init(void *userdata, struct fuse_conn_info *conn) {
   TRACE();
   (void)userdata, (void)conn;  // Unused.
+  TRACE_END();
 }
 
 static void sqlfuse_destroy(void *userdata) {
   TRACE();
   (void)userdata;  // Unused.
 
-  // TODO: purge all inodes that still have a positive lookup count!
-  // TODO: add a unit test for this?
+  // Purge any remaining inodes with nonzero lookup count.
+  struct sqlfuse_userdata *sqlfuse_userdata = userdata;
+  struct intmap *lookups = sqlfuse_userdata->lookups;
+  int64_t key, value;
+  while (intmap_retrieve_one(lookups, &key, &value)) {
+    CHECK(value != 0);
+    LOG("Purging ino=%lld nlookup=%lld\n", (long long)key, (long long)value);
+    forget(sqlfuse_userdata, (ino_t)key, value);
+  }
+  TRACE_END();
 }
 
 #define REPLY_NONE(req) reply_none(__FILE__, __LINE__, __func__, req)

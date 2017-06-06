@@ -197,8 +197,7 @@ static void teardown() {
   sqlfs_destroy(sqlfs);
   sqlfuse_userdata.sqlfs = sqlfs = NULL;
 
-  // Uncomment the line below once TODOs in sqlfuse_destroy() are implemented.
-  // EXPECT_EQ(intmap_size(lookups), 0);
+  EXPECT_EQ(intmap_size(lookups), 0);
   intmap_destroy(lookups);
   sqlfuse_userdata.lookups = lookups = NULL;
 
