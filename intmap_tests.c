@@ -61,6 +61,40 @@ static void test_size() {
   intmap_destroy(intmap);
 }
 
+static void test_retrieve_one() {
+  struct intmap *intmap = intmap_create();
+
+  int64_t key = 0, value = 0;
+  EXPECT(!intmap_retrieve_one(intmap, &key, &value));
+
+  EXPECT_EQ(intmap_update(intmap, 123, 45), 45);
+  EXPECT_EQ(intmap_update(intmap, 67, 890), 890);
+
+  // Retrieve the entry with the least key.
+  EXPECT(intmap_retrieve_one(intmap, &key, &value));
+  EXPECT_EQ(key, 67);
+  EXPECT_EQ(value, 890);
+
+  // Retrieve doesn't remove the entry from the map.
+  key = value = 0;
+  EXPECT(intmap_retrieve_one(intmap, &key, &value));
+  EXPECT_EQ(key, 67);
+  EXPECT_EQ(value, 890);
+
+  EXPECT_EQ(intmap_update(intmap, key, -value), 0);
+
+  // Retrieve second entry.
+  EXPECT(intmap_retrieve_one(intmap, &key, &value));
+  EXPECT_EQ(key, 123);
+  EXPECT_EQ(value, 45);
+
+  EXPECT_EQ(intmap_update(intmap, key, -value), 0);
+
+  EXPECT(!intmap_retrieve_one(intmap, &key, &value));
+
+  intmap_destroy(intmap);
+}
+
 static void test_multiple_instances() {
   struct intmap *a = intmap_create();
   struct intmap *b = intmap_create();
@@ -90,6 +124,7 @@ static const struct test_case tests[] = {
   TEST(create),
   TEST(update),
   TEST(size),
+  TEST(retrieve_one),
   TEST(multiple_instances),
 #undef TEST
   {NULL, NULL}};

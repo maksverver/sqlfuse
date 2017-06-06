@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 // An intmap is a mapping of 64-bit integer keys, to 64-bit integer values.
 // All values are 0 by default (i.e. there is no distinction between
@@ -29,5 +30,10 @@ int64_t intmap_update(struct intmap *intmap, int64_t key, int64_t value_add);
 
 // Returns the number of keys with non-zero values in the intmap.
 size_t intmap_size(struct intmap *intmap);
+
+// Retrieves the first nonzero entry in the map, writing the key to *key and its
+// value to *value, and then returns true. If the map is empty, false is
+// returned instead.
+bool intmap_retrieve_one(struct intmap *intmap, int64_t *key, int64_t *value);
 
 #endif /* ndef INTMAP_H_INCLUDED */

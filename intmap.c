@@ -21,12 +21,16 @@ static const char *const sql_delete =
 static const char *const sql_count =
     "SELECT COUNT(*) FROM intmap";
 
+static const char *const sql_retrieve_one =
+    "SELECT key, value FROM intmap LIMIT 1";
+
 struct intmap {
   sqlite3 *db;
   sqlite3_stmt *stmt_select;
   sqlite3_stmt *stmt_replace;
   sqlite3_stmt *stmt_delete;
   sqlite3_stmt *stmt_count;
+  sqlite3_stmt *stmt_retrieve_one;
 };
 
 static int64_t get(struct intmap *intmap, int64_t key) {
@@ -67,6 +71,7 @@ struct intmap *intmap_create() {
   CHECK(sqlite3_prepare_v2(intmap->db, sql_replace, -1, &intmap->stmt_replace, NULL) == SQLITE_OK);
   CHECK(sqlite3_prepare_v2(intmap->db, sql_delete, -1, &intmap->stmt_delete, NULL) == SQLITE_OK);
   CHECK(sqlite3_prepare_v2(intmap->db, sql_count, -1, &intmap->stmt_count, NULL) == SQLITE_OK);
+  CHECK(sqlite3_prepare_v2(intmap->db, sql_retrieve_one, -1, &intmap->stmt_retrieve_one, NULL) == SQLITE_OK);
   return intmap;
 }
 
@@ -76,6 +81,7 @@ void intmap_destroy(struct intmap *intmap) {
   CHECK(sqlite3_finalize(intmap->stmt_replace) == SQLITE_OK);
   CHECK(sqlite3_finalize(intmap->stmt_delete) == SQLITE_OK);
   CHECK(sqlite3_finalize(intmap->stmt_count) == SQLITE_OK);
+  CHECK(sqlite3_finalize(intmap->stmt_retrieve_one) == SQLITE_OK);
   CHECK(sqlite3_close(intmap->db) == SQLITE_OK);
   free(intmap);
 }
@@ -105,4 +111,19 @@ size_t intmap_size(struct intmap *intmap) {
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
   return (size_t)size;
+}
+
+bool intmap_retrieve_one(struct intmap *intmap, int64_t *key, int64_t *value) {
+  sqlite3_stmt *stmt = intmap->stmt_retrieve_one;
+  bool result = false;
+  int status = sqlite3_step(stmt);
+  if (status == SQLITE_ROW) {
+    *key = sqlite3_column_int64(stmt, 0);
+    *value = sqlite3_column_int64(stmt, 1);
+    result = true;
+    status = sqlite3_step(stmt);
+  }
+  CHECK(status == SQLITE_DONE);
+  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  return result;
 }
