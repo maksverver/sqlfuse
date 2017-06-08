@@ -3,8 +3,6 @@ Next:
   - Test if other filesystems support creating files/subdirectories in unlinked
     directories (using unlink()/createnodat()?). How should I handle that case?
   - test unlinking of open files, and reading/writing from them
-  - Delete unlinked files/directories at startup. (Note: should also delete
-    file/directory contents!)
   - sqlfs.c: Maybe: separate functions to create/open existing database?
   - CLI: does it make sense to separate database creation from mounting?
     For example:

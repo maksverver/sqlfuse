@@ -1006,6 +1006,68 @@ static void test_rename() {
   teardown();
 }
 
+static void test_purge() {
+  setup();
+
+  const char *path_a = makepath("a");
+  const char *path_b = makepath("b");
+
+  update_contents(path_a, "a", 1);
+  update_contents(path_b, "b", 1);
+
+  int fd_a = open(path_a, O_RDONLY);
+  int fd_b = open(path_b, O_RDONLY);
+  EXPECT(fd_a >= 0);
+  EXPECT(fd_b >= 0);
+
+  ino_t ino_a = get_ino(path_a);
+  unlink(path_a);
+  unlink(path_b);
+
+  EXPECT_EQ(sqlfs_purge(sqlfs, ino_a), 0);
+
+  char dummy;
+  EXPECT_EQ(read(fd_a, &dummy, 1), -1);
+  EXPECT_EQ(errno, ENOENT);
+  EXPECT_EQ(read(fd_b, &dummy, 1), 1);
+  EXPECT_EQ(dummy, 'b');
+
+  close(fd_a);
+  close(fd_b);
+
+  teardown();
+}
+
+static void test_purge_all() {
+  setup();
+
+  const char *path_a = makepath("a");
+  const char *path_b = makepath("b");
+
+  update_contents(path_a, "a", 1);
+  update_contents(path_b, "b", 1);
+
+  int fd_a = open(path_a, O_RDONLY);
+  int fd_b = open(path_b, O_RDONLY);
+  EXPECT(fd_a >= 0);
+  EXPECT(fd_b >= 0);
+
+  unlink(path_a);
+
+  EXPECT_EQ(sqlfs_purge_all(sqlfs), 0);
+
+  char dummy;
+  EXPECT_EQ(read(fd_a, &dummy, 1), -1);
+  EXPECT_EQ(errno, ENOENT);
+  EXPECT_EQ(read(fd_b, &dummy, 1), 1);
+  EXPECT_EQ(dummy, 'b');
+
+  close(fd_a);
+  close(fd_b);
+
+  teardown();
+}
+
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
@@ -1022,6 +1084,8 @@ static const struct test_case tests[] = {
   TEST(write_edgecases),
   TEST(blocksize),
   TEST(rename),
+  TEST(purge),
+  TEST(purge_all),
 #undef TEST
   {NULL, NULL}};
 

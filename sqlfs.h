@@ -169,15 +169,25 @@ int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
 //  EIO if a database operation failed
 int sqlfs_unlink(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *child_ino);
 
-// Delete metadata associated with the given file/directory, but only if its
-// hardlink count is zero. (If the hardlink count is nonzero, this function does
-// nothing).
+// Unlinks the file or removes the directory with the given inode number, but
+// only if its hardlink count is zero. (If the hardlink count is nonzero, this
+// function does nothing, and returns successfully.)
 //
 // Returns:
 //  0 on success
 //  ENOENT if the inode doesn't exist
 //  EIO if a database operation failed
 int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino);
+
+// Unlinks all files and removes all directories whose hardlink count is zero.
+// This is functionally equivalent to (but more efficient than) calling
+// sqlfs_purge() for every inode in the database.
+//
+// Returns:
+//  0 on success
+//  EIO if a database operation failed
+//  ENOTEMPTY if an unlinked directory is not empty (which should be impossible)
+int sqlfs_purge_all(struct sqlfs *sqlfs);
 
 // Attribute flags for use with sqlfs_set_attr() (see below).
 #define SQLFS_SET_ATTR_MODE  (1 << 0)

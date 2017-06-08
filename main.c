@@ -189,6 +189,10 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Failed to open database '%s'.\n", args.filepath);
     return 1;
   }
+  if (sqlfs_purge_all(sqlfs) != 0) {
+    fprintf(stderr, "Failed to purge unlinked entries in database '%s'.\n", args.filepath);
+    return 1;
+  }
   struct intmap *lookups = intmap_create();
   if (lookups == NULL) {
     fprintf(stderr, "Failed to create intmap.\n");

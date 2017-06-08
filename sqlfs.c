@@ -1221,6 +1221,29 @@ finish:
   return err;
 }
 
+int sqlfs_purge_all(struct sqlfs *sqlfs) {
+  // We prepare a one-off SQL statement, because we expect this function to be
+  // called only rarely, so it's not worth keeping it in memory.
+  sqlite3_stmt *stmt = NULL;
+  CHECK(prepare(sqlfs->db, "SELECT ino FROM metadata WHERE nlink = 0", &stmt));
+  int err = 0;
+  sql_begin_transaction(sqlfs);
+  for (int status; err == 0 && (status = sqlite3_step(stmt)) != SQLITE_DONE; ) {
+    if (status != SQLITE_ROW) {
+      err = EIO;
+    } else {
+      err = sqlfs_purge(sqlfs, (ino_t)sqlite3_column_int64(stmt, 0));
+    }
+  }
+  if (err == 0) {
+    sql_commit_transaction(sqlfs);
+  } else {
+    sql_rollback_transaction(sqlfs);
+  }
+  sqlite3_finalize(stmt);
+  return err;
+}
+
 // Changes the size of a file from `old_size` to `new_size`, padding the current
 // data with zeroes if necessary.
 //
