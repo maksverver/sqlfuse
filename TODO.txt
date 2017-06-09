@@ -1,5 +1,6 @@
 Next:
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
+  - Check if password is kept in memory. Document somewhere if it is.
   - sqlfs.c: Maybe: separate functions to create/open existing database?
   - CLI: does it make sense to separate database creation from mounting?
     For example:
@@ -8,10 +9,11 @@ Next:
     Exit with an error if a mountpoint is specified in the first case.
   - CLI: if creating the database fails, should we delete the partially-created
     database file (which will be empty)?
-  - Figure out what happens if an open directory is deleted?
   - Create a logging mode where we log warnings/errors but don't print function
     call traces? (This would be useful for normal foreground use.) Maybe just
     write to stderr directly for important errors/warnings?
+  - Find out how to rekey the database, and document it somewhere. Maybe add a
+    CLI option for it?
   - Revisit transaction functions (sql_begin_transaction() etc.): they currently
     emulate nested transactions with savepoints. It might be less confusing if they
     were named after the SQL statements they actually execute. Maybe the functions
@@ -57,7 +59,16 @@ TBD:
     (test it with mkdir once that works!)
 
 Decisions to document somewhere:
+  - No multithreading support. It complicates everything, is not immediately
+    necessary, and would not work well with SQLite (since SQLite serializes
+    transactions by default).
   - ctime and atime are not stored. (They're not very useful.)
+  - Each file has an associated block size (which can vary between files, though
+    it's 4 KiB by default). File data is stored as a series of blocks, indexed
+    from 0 to N. Blocks 0 through N - 1 have size `blocksize`; the N-th block
+    is shorter if the file size is not a multiple of the blocksize. Blocks are
+    never empty.
+  - Sparse files are currently not supported. Maybe later!
   - For performance reasons, the inode PRIMARY KEY in the metadata table is not
     declared as AUTOINCREMENT. Because we always set the `generation` field to a
     fixed value, that means the filesystem cannot be exported over NFS! An
@@ -69,7 +80,6 @@ Decisions to document somewhere:
     sqlfuse_readdir() to remember the last entry name.
   - All write operations commit to the database, so there is no need to flush()
     or sync() anything.
-  - Sparse files are currently not supported. Maybe later!
   - Permission bits sticky/setuid/setgid (mask 07000) are currently not
     supported. Maybe later! (Careful: we should clear setuid/setgid bits when
     the owner/group of a file is changed.)
@@ -79,6 +89,10 @@ Decisions to document somewhere:
   - Permission checking is deferred to libfuse. This has not been tested.
     It's probably not safe to share the filesystem with others (i.e. using the
     -o allow_others mount option).
+
+Future ideas:
+  - Transparent compression of file data? Or maybe this can be implemented on a
+    lower level (compressing the database file itself)?
 
 General TODO:
   - create a README with some information and usage notes.
