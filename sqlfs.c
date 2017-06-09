@@ -1648,9 +1648,18 @@ int sqlfs_rename(struct sqlfs *sqlfs, ino_t old_parent_ino, const char *old_name
     // If we moved a child directory to a different subdirectory, we must update
     // the child directory's parent reference, and adjust the old and new parent's
     // link count accordingly.
-    sql_reparent_directory(sqlfs, old_entry_attr.st_ino, new_parent_ino);
-    sql_dec_nlink(sqlfs, old_parent_ino);
-    sql_inc_nlink(sqlfs, new_parent_ino);
+    err = sql_reparent_directory(sqlfs, old_entry_attr.st_ino, new_parent_ino);
+    if (err != 0) {
+      goto failure;
+    }
+    err = sql_dec_nlink(sqlfs, old_parent_ino);
+    if (err != 0) {
+      goto failure;
+    }
+    err = sql_inc_nlink(sqlfs, new_parent_ino);
+    if (err != 0) {
+      goto failure;
+    }
   }
 
 success:
