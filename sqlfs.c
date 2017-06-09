@@ -812,17 +812,17 @@ struct sqlfs *sqlfs_create(
 
   if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) goto failed;
 
-  /* TODO: set password */
-  /* TODO: and other options (check doc!) */
-
   if (password != NULL) {
     sqlite3_key(sqlfs->db, password, strlen(password));
 
-    /* Chosen to match Linux page size. */
+    // cipher_page_size must be set immediately after setting the password.
+    // Large values make sequential reads/writes more efficient, but random
+    // access less efficient. The default is 1024. We chose 4096 to match the
+    // Linux page size. Once the database is created, the cipher_page_size can
+    // never be changed, and the same value MUST be set explicitly every time it
+    // is opened!
     exec_sql(sqlfs->db, "PRAGMA cipher_page_size = 4096");
   }
-  exec_sql(sqlfs->db, "PRAGMA foreign_keys = ON");
-  /* exec_sql(sqlfs->db, "PRAGMA journal_mode = WAL"); */
 
   int64_t version = -1;
 

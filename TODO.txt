@@ -1,6 +1,4 @@
 Next:
-  - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
-  - Check if password is kept in memory. Document somewhere if it is.
   - sqlfs.c: Maybe: separate functions to create/open existing database?
   - CLI: does it make sense to separate database creation from mounting?
     For example:

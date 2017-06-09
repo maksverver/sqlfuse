@@ -1121,7 +1121,12 @@ static void test_unlinked_directory() {
   EXPECT_EQ(errno, ENOENT);
 
   CHECK(chdir(cwd) == 0);
+
   EXPECT_EQ(close(fd), 0);
+
+  // Possible TODO: it might be nice to check that reading the directory with
+  // readdir still works (after the directory is deleted), though it would not
+  // contain anything except the '.' and '..' entries.
 
   teardown();
 }
