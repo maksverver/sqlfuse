@@ -1,8 +1,5 @@
 Next:
   - sqlfs.c: set passwords & parameters (see TODO in sqlfs_create)
-  - Test if other filesystems support creating files/subdirectories in unlinked
-    directories (using unlink()/createnodat()?). How should I handle that case?
-  - test unlinking of open files, and reading/writing from them
   - sqlfs.c: Maybe: separate functions to create/open existing database?
   - CLI: does it make sense to separate database creation from mounting?
     For example:
@@ -34,6 +31,10 @@ Next:
     finish:
       sql_release_savepoint(sqlfs);
       return err;
+
+  - Consider calling sqlfs_purge_all() in destroy rather than purging each open
+    inode individually? (It would have the benefit that sqlfs_purge_all() is
+    more efficient because it can use an index to find unlinked entries.)
 
 Things to test:
   - some manual smoke-testing: verify that files are actually purged during

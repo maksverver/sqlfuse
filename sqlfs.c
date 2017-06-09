@@ -893,6 +893,33 @@ int sqlfs_stat(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
   return finish_stat_query(stmt, stat, sqlfs->blocksize);
 }
 
+// Like sqlfs_stat(), but also verifies that `ino` refers to a directory, and
+// that it has positive link count.
+//
+// This function is used by sqlfs_mkdir() and sqlfs_mknod(), before calling
+// sql_insert_direntries() to insert new entries in a directory. An unlinked
+// directory effectively doesn't exist, so it should not be possible to create
+// files or subdirectories in it.
+//
+// Returns:
+//  0 on success
+//  ENOENT if the entry does not exist, or its link count is zero
+//  ENOTDIR if the entry exists, but does not refer to a directory
+//  EIO if a database operation failed
+static int stat_dir(struct sqlfs *sqlfs, ino_t ino, struct stat *stat) {
+  int err = sqlfs_stat(sqlfs, ino, stat);
+  if (err != 0) {
+    return err;
+  }
+  if (!S_ISDIR(stat->st_mode)) {
+    return ENOTDIR;
+  }
+  if (stat->st_nlink == 0) {
+    return ENOENT;
+  }
+  return 0;
+}
+
 // Looks up a single directory entry. If succesful, the child inode number is
 // returned in *ino, and (only!) the file type bits of the child inode in *mode.
 //
@@ -952,12 +979,8 @@ int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
   sql_begin_transaction(sqlfs);
 
   struct stat dir_stat;
-  int err = sqlfs_stat(sqlfs, dir_ino, &dir_stat);
+  int err = stat_dir(sqlfs, dir_ino, &dir_stat);
   if (err != 0) {
-    goto finish;
-  }
-  if (!S_ISDIR(dir_stat.st_mode)) {
-    err = ENOTDIR;
     goto finish;
   }
   err = sql_inc_nlink(sqlfs, dir_ino);
@@ -1149,12 +1172,8 @@ int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
   sql_begin_transaction(sqlfs);
 
   struct stat dir_stat;
-  int err = sqlfs_stat(sqlfs, dir_ino, &dir_stat);
+  int err = stat_dir(sqlfs, dir_ino, &dir_stat);
   if (err != 0) {
-    goto finish;
-  }
-  if (!S_ISDIR(dir_stat.st_mode)) {
-    err = ENOTDIR;
     goto finish;
   }
   // Create file inode.

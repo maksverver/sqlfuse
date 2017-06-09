@@ -1068,6 +1068,64 @@ static void test_purge_all() {
   teardown();
 }
 
+static void test_unlinked_file() {
+  setup();
+
+  const char *path = makepath("file");
+  update_contents(path, "foo", 3);
+
+  int fd1 = open(path, O_RDONLY);
+  EXPECT(fd1 >= 0);
+  int fd2 = open(path, O_WRONLY | O_APPEND);
+  EXPECT(fd2 >= 0);
+  EXPECT_EQ(unlink(path), 0);
+  EXPECT_EQ(open(path, O_RDONLY), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  // Can still write to file.
+  EXPECT_EQ(write(fd2, "bar", 3), 3);
+
+  // Can still read from file.
+  char buf[10];
+  EXPECT_EQ(read(fd1, buf, sizeof(buf)), 6);
+  EXPECT_EQ(memcmp(buf, "foobar", 6), 0);
+
+  teardown();
+}
+
+// This test verifies that it's not possible to create files or subdirectories
+// in an unlinked directory. (This would make garbage collection of unlinked
+// directories very complicated!)
+static void test_unlinked_directory() {
+  setup();
+
+  char cwd[PATH_MAX];
+  CHECK(getcwd(cwd, sizeof(cwd)) == cwd);
+
+  const char *path_dir = makepath("dir");
+
+  EXPECT_EQ(mkdir(path_dir, 0755), 0);
+  int fd = open(path_dir, O_RDONLY);
+  EXPECT(fd >= 0);
+  EXPECT_EQ(chdir(path_dir), 0);
+
+  EXPECT_EQ(mknod("foo", 0600, 0), 0);
+  EXPECT_EQ(unlink("foo"), 0);
+
+  EXPECT_EQ(rmdir("../dir"), 0);
+
+  EXPECT_EQ(mknod("bar", 0600, 0), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  EXPECT_EQ(mkdir("baz", 0600), -1);
+  EXPECT_EQ(errno, ENOENT);
+
+  CHECK(chdir(cwd) == 0);
+  EXPECT_EQ(close(fd), 0);
+
+  teardown();
+}
+
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
@@ -1086,6 +1144,8 @@ static const struct test_case tests[] = {
   TEST(rename),
   TEST(purge),
   TEST(purge_all),
+  TEST(unlinked_file),
+  TEST(unlinked_directory),
 #undef TEST
   {NULL, NULL}};
 
