@@ -280,4 +280,4 @@ int sqlfs_rename(struct sqlfs *sqlfs,
     ino_t old_parent_ino, const char *old_name,
     ino_t new_parent_ino, const char *new_name, ino_t *unlinked_ino);
 
-#endif
+#endif /* ndef SQLFS_H_INCLUDED */
