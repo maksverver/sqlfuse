@@ -117,14 +117,16 @@ static int maybe_purge(struct sqlfuse_userdata *userdata, ino_t ino) {
 }
 
 static void sqlfuse_init(void *userdata, struct fuse_conn_info *conn) {
-  TRACE();
-  (void)userdata, (void)conn;  // Unused.
+  (void)conn;  // Unused.
+
+  TRACE_BEGIN();
+  struct sqlfuse_userdata *sqlfuse_userdata = userdata;
+  intmap_update(sqlfuse_userdata->lookups, SQLFS_INO_ROOT, 1);
   TRACE_END();
 }
 
 static void sqlfuse_destroy(void *userdata) {
-  TRACE();
-  (void)userdata;  // Unused.
+  TRACE_BEGIN();
 
   // Purge any remaining inodes with nonzero lookup count.
   struct sqlfuse_userdata *sqlfuse_userdata = userdata;

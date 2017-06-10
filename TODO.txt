@@ -126,6 +126,7 @@ Things I learned about fuse:
     are deleted. To track which entries are still active, the kernel module
     maintains a lookup count per inode number.
 
+      - The root inode (number 1) starts with lookup count 1.
       - Each time an inode number is sent to the kernel with fuse_reply_entry()
         or fuse_reply_create(), its lookup count increases by 1. (We don't
         implement create(), so we can ignore the second function.)
