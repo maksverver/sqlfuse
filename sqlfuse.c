@@ -13,6 +13,8 @@
 
 #include "fuse_lowlevel.h"
 
+bool sqlfuse_tracing_enabled = false;
+
 // We don't use generation numbers! But we also don't guarantee not to re-use
 // any inode numbers. That means the file system cannot safely be used over NFS!
 #define GENERATION 1
@@ -49,16 +51,21 @@ struct dir_handle {
 // presumably the kernel does, and it will be much less than 256 KiB.)
 #define MAX_BUF_SIZE (256 * 1024) /* 256 KiB */
 
-#define TRACE(...) \
+#define TRACE_BEGIN(...) \
   do { \
-    if (logging_enabled) { \
+    if (sqlfuse_tracing_enabled) { \
       fprintf(stderr, "[%s:%d] %s() ->", __FILE__, __LINE__, __func__); \
       __VA_ARGS__; \
       fputc('\n', stderr); \
     } \
   } while(0)
 
-#define TRACE_END() LOG("[%s:%d] %s() <-\n", __FILE__, __LINE__, __func__)
+#define TRACE_END() \
+  do { \
+    if (sqlfuse_tracing_enabled) { \
+      fprintf(stderr, "[%s:%d] %s() <-\n", __FILE__, __LINE__, __func__); \
+    } \
+  } while(0)
 
 #define TRACE_INT(i) fprintf(stderr, " %s=%lld", #i, (long long)i);
 #define TRACE_UINT(ui) fprintf(stderr, " %s=%llu", #ui, (unsigned long long)ui)
@@ -104,7 +111,7 @@ static int forget(struct sqlfuse_userdata *userdata, ino_t ino, int64_t nlookup)
   if (new_count < 0) {
     // This should never happen, unless there is some inconsistency between how
     // FUSE and I account for lookups!
-    LOG("WARNING: negative lookup count %lld for inode number %lld!", (long long)new_count, (long long)ino);
+    LOG("WARNING: negative lookup count %lld for inode number %lld!\n", (long long)new_count, (long long)ino);
   }
   if (new_count > 0) {
     return 0;
@@ -133,8 +140,9 @@ static void sqlfuse_destroy(void *userdata) {
   struct intmap *lookups = sqlfuse_userdata->lookups;
   int64_t key, value;
   while (intmap_retrieve_one(lookups, &key, &value)) {
-    CHECK(value != 0);
-    LOG("Purging ino=%lld nlookup=%lld\n", (long long)key, (long long)value);
+    if (sqlfuse_tracing_enabled) {
+      fprintf(stderr, "Purging ino=%lld nlookup=%lld\n", (long long)key, (long long)value);
+    }
     forget(sqlfuse_userdata, (ino_t)key, value);
   }
   TRACE_END();
@@ -149,12 +157,16 @@ static void sqlfuse_destroy(void *userdata) {
 #define REPLY_WRITE(req, count) reply_write(__FILE__, __LINE__, __func__, req, count)
 
 static void reply_none(const char *file, int line, const char *func, fuse_req_t req) {
-  LOG("[%s:%d] %s() <- none\n", file, line, func);
+  if (sqlfuse_tracing_enabled) {
+    fprintf(stderr, "[%s:%d] %s() <- none\n", file, line, func);
+  }
   fuse_reply_none(req);
 }
 
 static void reply_err(const char *file, int line, const char *func, fuse_req_t req, int err) {
-  LOG("[%s:%d] %s() <- err=%d\n", file, line, func, err);
+  if (sqlfuse_tracing_enabled) {
+    fprintf(stderr, "[%s:%d] %s() <- err=%d\n", file, line, func, err);
+  }
   int res = fuse_reply_err(req, err);
   if (res != 0) {
     LOG("WARNING: fuse_reply_err(err=%d) returned %d\n", err, res);
@@ -162,7 +174,9 @@ static void reply_err(const char *file, int line, const char *func, fuse_req_t r
 }
 
 static void reply_entry(const char *file, int line, const char *func, fuse_req_t req, const struct fuse_entry_param *entry) {
-  LOG("[%s:%d] %s() <- entry{ino=%lld}\n", file, line, func, (long long)entry->ino);
+  if (sqlfuse_tracing_enabled) {
+    fprintf(stderr, "[%s:%d] %s() <- entry{ino=%lld}\n", file, line, func, (long long)entry->ino);
+  }
   // Must grab lookups pointer first, because `req` is invalid after calling fuse_reply_entry!
   struct intmap *const lookups = req_lookups(req);
   int res = fuse_reply_entry(req, entry);
@@ -175,7 +189,9 @@ static void reply_entry(const char *file, int line, const char *func, fuse_req_t
 }
 
 static void reply_buf(const char *file, int line, const char *func, fuse_req_t req, const char *buf, size_t size) {
-  LOG("[%s:%d] %s() <- buf=%p size=%lld\n", file, line, func, buf, (long long)size);
+  if (sqlfuse_tracing_enabled) {
+    fprintf(stderr, "[%s:%d] %s() <- buf=%p size=%lld\n", file, line, func, buf, (long long)size);
+  }
   int res = fuse_reply_buf(req, buf, size);
   if (res != 0) {
     LOG("WARNING: fuse_reply_buf() returned %d\n", res);
@@ -183,9 +199,11 @@ static void reply_buf(const char *file, int line, const char *func, fuse_req_t r
 }
 
 static void reply_attr(const char *file, int line, const char *func, fuse_req_t req, const struct stat *attr) {
-  // We only log the most interesting fields of attr for now.
-  LOG("[%s:%d] %s() <- attr{ino=%lld mode=0%o nlink=%d size=%lld}\n",
-      file, line, func, (long long)attr->st_ino, (int)attr->st_mode, (int)attr->st_nlink, (long long)attr->st_size);
+  if (sqlfuse_tracing_enabled) {
+    // We only print the most interesting fields of attr for now.
+    fprintf(stderr, "[%s:%d] %s() <- attr{ino=%lld mode=0%o nlink=%d size=%lld}\n",
+        file, line, func, (long long)attr->st_ino, (int)attr->st_mode, (int)attr->st_nlink, (long long)attr->st_size);
+  }
   int res = fuse_reply_attr(req, attr, 0.0 /* attr_timeout */);
   if (res != 0) {
     LOG("WARNING: fuse_reply_attr() returned %d\n", res);
@@ -193,8 +211,10 @@ static void reply_attr(const char *file, int line, const char *func, fuse_req_t 
 }
 
 static void reply_open(const char *file, int line, const char *func, fuse_req_t req, struct fuse_file_info *fi) {
-  LOG("[%s:%d] %s() <- open fh=0x%llx direct_io=%d keep_cache=%d\n",
-      file, line, func, (long long)fi->fh, (int)fi->direct_io, (int)fi->keep_cache);
+  if (sqlfuse_tracing_enabled) {
+    fprintf(stderr, "[%s:%d] %s() <- open fh=0x%llx direct_io=%d keep_cache=%d\n",
+        file, line, func, (long long)fi->fh, (int)fi->direct_io, (int)fi->keep_cache);
+  }
   int res = fuse_reply_open(req, fi);
   if (res != 0) {
     LOG("WARNING: fuse_reply_open() returned %d\n", res);
@@ -202,7 +222,9 @@ static void reply_open(const char *file, int line, const char *func, fuse_req_t 
 }
 
 static void reply_write(const char *file, int line, const char *func, fuse_req_t req, size_t count) {
-  LOG("[%s:%d] %s() <- write count=%lld\n", file, line, func, (long long)count);
+  if (sqlfuse_tracing_enabled) {
+    fprintf(stderr, "[%s:%d] %s() <- write count=%lld\n", file, line, func, (long long)count);
+  }
   int res = fuse_reply_write(req, count);
   if (res != 0) {
     LOG("WARNING: fuse_reply_write() returned %d\n", res);
@@ -210,7 +232,7 @@ static void reply_write(const char *file, int line, const char *func, fuse_req_t
 }
 
 static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) {
-  TRACE(TRACE_UINT(parent), TRACE_STR(name));
+  TRACE_BEGIN(TRACE_UINT(parent), TRACE_STR(name));
 
   struct fuse_entry_param entry;
   memset(&entry, 0, sizeof(entry));
@@ -225,19 +247,19 @@ static void sqlfuse_lookup(fuse_req_t req, fuse_ino_t parent, const char *name) 
 }
 
 static void sqlfuse_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup) {
-  TRACE(TRACE_UINT(ino), TRACE_UINT(nlookup));
+  TRACE_BEGIN(TRACE_UINT(ino), TRACE_UINT(nlookup));
   CHECK(nlookup < INT64_MAX);
   int err = forget(req_userdata(req), ino, (int64_t)nlookup);
   if (err != 0) {
     // This is a pretty serious condition: we failed to purge a deleted file or
     // directory, but we can't report the error upstream.
-    LOG("ERROR: failed to purge ino=%lld (err=%d)!", (long long)ino, err);
+    LOG("ERROR: failed to purge ino=%lld (err=%d)!\n", (long long)ino, err);
   }
   REPLY_NONE(req);
 }
 
 static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino));
+  TRACE_BEGIN(TRACE_UINT(ino));
   (void)fi;  // Unused. (Reserved by FUSE for future use. Should be NULL, now.)
   struct stat attr;
   int err = sqlfs_stat(req_sqlfs(req), ino, &attr);
@@ -250,7 +272,7 @@ static void sqlfuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 
 static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
     int to_set, struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino), TRACE_INT(to_set));
+  TRACE_BEGIN(TRACE_UINT(ino), TRACE_INT(to_set));
 
   // Under very specific conditions, fi->fh would contain an open file handle
   // (see fuse_lowlevel.h for details). We assume it's NULL, and don't use it.
@@ -285,7 +307,7 @@ static void sqlfuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 
 static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
     mode_t mode, dev_t rdev) {
-  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode), TRACE_UINT(rdev));
+  TRACE_BEGIN(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode), TRACE_UINT(rdev));
   struct fuse_entry_param entry;
   memset(&entry, 0, sizeof(entry));
   int err = sqlfs_mknod(req_sqlfs(req), parent, name, mode, &entry.attr);
@@ -299,7 +321,7 @@ static void sqlfuse_mknod(fuse_req_t req, fuse_ino_t parent, const char *name,
 }
 
 static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode) {
-  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode));
+  TRACE_BEGIN(TRACE_UINT(parent), TRACE_STR(name), TRACE_MODE(mode));
 
   struct fuse_entry_param entry;
   memset(&entry, 0, sizeof(entry));
@@ -314,7 +336,7 @@ static void sqlfuse_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, m
 }
 
 static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
-  TRACE(TRACE_UINT(parent), TRACE_STR(name));
+  TRACE_BEGIN(TRACE_UINT(parent), TRACE_STR(name));
   struct sqlfuse_userdata *const userdata = req_userdata(req);
   ino_t child_ino = SQLFS_INO_NONE;
   int err = sqlfs_unlink(userdata->sqlfs, parent, name, &child_ino);
@@ -325,7 +347,7 @@ static void sqlfuse_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) 
 }
 
 static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
-  TRACE(TRACE_UINT(parent), TRACE_STR(name));
+  TRACE_BEGIN(TRACE_UINT(parent), TRACE_STR(name));
   struct sqlfuse_userdata *const userdata = req_userdata(req);
   ino_t child_ino = SQLFS_INO_NONE;
   int err = sqlfs_rmdir(userdata->sqlfs, parent, name, &child_ino);
@@ -337,7 +359,7 @@ static void sqlfuse_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name) {
 
 static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     fuse_ino_t newparent, const char *newname) {
-  TRACE(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(newparent), TRACE_STR(newname));
+  TRACE_BEGIN(TRACE_UINT(parent), TRACE_STR(name), TRACE_UINT(newparent), TRACE_STR(newname));
   struct sqlfuse_userdata *const userdata = req_userdata(req);
   ino_t unlinked_ino = SQLFS_INO_NONE;
   int err = sqlfs_rename(userdata->sqlfs, parent, name, newparent, newname, &unlinked_ino);
@@ -349,7 +371,7 @@ static void sqlfuse_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
 
 static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
+  TRACE_BEGIN(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
   (void)fi;  // Unused.
   char *buf = malloc(size);
   if (buf == NULL) {
@@ -370,7 +392,7 @@ static void sqlfuse_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 
 static void sqlfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
     size_t size, off_t off, struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
+  TRACE_BEGIN(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
   (void)fi;  // Unused
   const int err = sqlfs_write(req_sqlfs(req), ino, off, size, buf);
   if (err != 0) {
@@ -381,7 +403,7 @@ static void sqlfuse_write(fuse_req_t req, fuse_ino_t ino, const char *buf,
 }
 
 static void sqlfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino));
+  TRACE_BEGIN(TRACE_UINT(ino));
   struct dir_handle *dir_handle = calloc(1, sizeof(struct dir_handle));
   fi->fh = (uint64_t) dir_handle;
   REPLY_OPEN(req, fi);
@@ -389,7 +411,7 @@ static void sqlfuse_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_inf
 
 static void sqlfuse_readdir(fuse_req_t req, fuse_ino_t ino,
     size_t size, off_t off, struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
+  TRACE_BEGIN(TRACE_UINT(ino), TRACE_UINT(size), TRACE_UINT(off));
 
   struct dir_handle *dir_handle = (struct dir_handle *)fi->fh;
   if (dir_handle->at_end) {
@@ -464,7 +486,7 @@ static void sqlfuse_readdir(fuse_req_t req, fuse_ino_t ino,
 
 static void sqlfuse_releasedir(fuse_req_t req, fuse_ino_t ino,
     struct fuse_file_info *fi) {
-  TRACE(TRACE_UINT(ino));
+  TRACE_BEGIN(TRACE_UINT(ino));
   struct dir_handle *dir_handle = (struct dir_handle *)fi->fh;
   free(dir_handle->next_name);
   free(dir_handle);

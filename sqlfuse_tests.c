@@ -1156,22 +1156,26 @@ static const struct test_case tests[] = {
 
 int main(int argc, char *argv[]) {
   // Parse command line options.
-  for (int opt; (opt = getopt(argc, argv, "dls:")) != -1; ) {
+  for (int opt; (opt = getopt(argc, argv, "ltds:")) != -1; ) {
     switch (opt) {
-      case 'd':
-        enable_fuse_debug_logging = true;
-        break;
       case 'l':
         logging_enabled = true;
+        break;
+      case 't':
+        sqlfuse_tracing_enabled = true;
+        break;
+      case 'd':
+        enable_fuse_debug_logging = true;
         break;
       case 's':
         sqlite_path_for_dump = optarg;
         break;
       default:
         fputs(
-          "Usage: tests [-l] [-d] [-s sqlite3] [<tests...>]\n\n"
+          "Usage: sqlfuse_tests [-l] [-t] [-d] [-s sqlite3] [<tests...>]\n\n"
           "Options:\n"
           "\t-l         enable printing of log statements\n"
+          "\t-t         enable printing of function call traces\n"
           "\t-d         enable printing libfuse debug output\n"
           "\t-s sqlite3 name of the sqlite3 binary (if specified, the contents\n"
           "\t           of the database will be dumped after each test)\n",

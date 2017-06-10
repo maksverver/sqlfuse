@@ -7,9 +7,6 @@ Next:
     Exit with an error if a mountpoint is specified in the first case.
   - CLI: if creating the database fails, should we delete the partially-created
     database file (which will be empty)?
-  - Create a logging mode where we log warnings/errors but don't print function
-    call traces? (This would be useful for normal foreground use.) Maybe just
-    write to stderr directly for important errors/warnings?
   - Find out how to rekey the database, and document it somewhere. Maybe add a
     CLI option for it?
   - Revisit transaction functions (sql_begin_transaction() etc.): they currently

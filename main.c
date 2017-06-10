@@ -38,6 +38,10 @@ static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs, struct intm
     }
     logging_enabled = foreground != 0;
 
+    // Ideally, we'd enable this only in debug mode. (We'd have to parse the
+    // command line flags and check for -d, -o debug, or -odebug).
+    sqlfuse_tracing_enabled = false;
+
     struct fuse_chan *chan = fuse_mount(mountpoint, &args);
     if (chan != NULL) {
       struct sqlfuse_userdata sqlfuse_userdata = { .sqlfs = sqlfs, .lookups = lookups };
