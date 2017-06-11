@@ -20,9 +20,20 @@
 // The state for a single filesystem.
 struct sqlfs;
 
-// Opens an existing or creates a new filesystem at the given path. Whether a
-// new filesystem is created or not depends on whether the database already
-// exists or not.
+// Creates a new filesystem at the given path.
+//
+//  filepath: path to the database file.
+//  password: password to use. May be NULL to disable encryption.
+//  umask: umask to apply when creating the root directory.
+//  uid: user id to use for the root directory.
+//  gid: group id to use for the root directory.
+//
+// Returns true if the filesystem was created succesfully, false otherwise.
+bool sqlfs_create(
+    const char *filepath, const char *password,
+    mode_t umask, uid_t uid, gid_t gid);
+
+// Opens a filesystem at the given path.
 //
 // Returns NULL if the file could not be opened (e.g. invalid path, incorrect
 // password, invalid file format, etc.). Otherwise, returns a pointer to the
@@ -33,7 +44,7 @@ struct sqlfs;
 //  umask: umask to use for this session
 //  uid: user id to use for this session
 //  gid: group id to use for this session
-struct sqlfs *sqlfs_create(
+struct sqlfs *sqlfs_open(
     const char *filepath, const char *password,
     mode_t umask, uid_t uid, gid_t gid);
 
@@ -107,7 +118,7 @@ int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *chi
 //
 // Example usage:
 //
-//   struct sqlfs *sqlfs = sqlfs_create(..);
+//   struct sqlfs *sqlfs = sqlfs_open(...);
 //   struct ino_t dir_ino = 1;
 //   struct sqlfs_dir *dir = sqlfs_dir_open(sqlfs, dir_ino, NULL);
 //

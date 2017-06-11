@@ -1,14 +1,12 @@
 Next:
-  - sqlfs.c: Maybe: separate functions to create/open existing database?
-  - CLI: does it make sense to separate database creation from mounting?
-    For example:
-      sqlfuse -c new.db    # creates file
-      sqlfuse new.db mnt   # mounts it
-    Exit with an error if a mountpoint is specified in the first case.
-  - CLI: if creating the database fails, should we delete the partially-created
-    database file (which will be empty)?
-  - Find out how to rekey the database, and document it somewhere. Maybe add a
-    CLI option for it?
+  - think about a cool name & rebrand everything?
+  - only trace in debug mode
+  - implement rekey command:
+      should prompt once for old password, twice for new password.
+      implement using sqlite3_rekey.
+  - implement vacuum command:
+      should purge first, then vacuum.
+  - implement fsck command (verify that it works on read only files)
   - Revisit transaction functions (sql_begin_transaction() etc.): they currently
     emulate nested transactions with savepoints. It might be less confusing if they
     were named after the SQL statements they actually execute. Maybe the functions

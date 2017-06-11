@@ -281,18 +281,17 @@ static void sql_rollback_transaction(struct sqlfs *sqlfs) {
   sql_commit_transaction(sqlfs);
 }
 
-static bool sql_get_user_version(struct sqlfs *sqlfs, int64_t *user_version) {
-  bool result = false;
+static bool get_user_version(sqlite3 *db, int64_t *user_version) {
+  bool success = false;
   sqlite3_stmt *stmt = NULL;
-  CHECK(prepare(sqlfs->db, "PRAGMA user_version", &stmt));
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  CHECK(prepare(db, "PRAGMA user_version", &stmt));
   if (sqlite3_step(stmt) == SQLITE_ROW) {
-    result = true;
+    success = true;
     *user_version = sqlite3_column_int64(stmt, 0);
     CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   }
   sqlite3_finalize(stmt);
-  return result;
+  return success;
 }
 
 static struct timespec current_timespec() {
@@ -342,21 +341,21 @@ static struct timespec nanos_to_timespec(int64_t nanos) {
 // This is basically a special-case version of sqlfs_mkdir that doesn't use
 // prepared statements so it can be called during initialization, before the
 // schema has been committed.
-static void create_root_directory(struct sqlfs *sqlfs) {
+static void create_root_directory(sqlite3 *db, mode_t umask, uid_t uid, gid_t gid) {
   sqlite3_stmt *stmt = NULL;
 
-  const mode_t mode = (0777 &~ sqlfs->umask) | S_IFDIR;
-  CHECK(prepare(sqlfs->db, "INSERT INTO metadata(ino, mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?, ?)", &stmt));
+  const mode_t mode = (0777 &~ umask) | S_IFDIR;
+  CHECK(prepare(db, "INSERT INTO metadata(ino, mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?, ?)", &stmt));
   CHECK(sqlite3_bind_int64(stmt, 1, SQLFS_INO_ROOT) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 2, mode) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 3, 1) == SQLITE_OK);  // nlink
-  CHECK(sqlite3_bind_int64(stmt, 4, sqlfs->uid) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 5, sqlfs->gid) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, 4, uid) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, 5, gid) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 6, current_time_nanos()) == SQLITE_OK);
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   sqlite3_finalize(stmt);
 
-  CHECK(prepare(sqlfs->db, "INSERT INTO direntries(dir_ino, entry_name, entry_ino, entry_type) VALUES (?, ?, ?, ?)", &stmt));
+  CHECK(prepare(db, "INSERT INTO direntries(dir_ino, entry_name, entry_ino, entry_type) VALUES (?, ?, ?, ?)", &stmt));
   CHECK(sqlite3_bind_int64(stmt, 1, SQLFS_INO_ROOT) == SQLITE_OK);
   CHECK(sqlite3_bind_text(stmt, 2, "", 0, SQLITE_STATIC) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, 3, SQLFS_INO_ROOT) == SQLITE_OK);
@@ -800,50 +799,85 @@ static int sql_delete_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t from_idx)
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
-struct sqlfs *sqlfs_create(
+static void set_password(sqlite3 *db, const char *password) {
+  if (password == NULL) {
+    return;
+  }
+
+  sqlite3_key(db, password, strlen(password));
+
+  // cipher_page_size must be set immediately after setting the password.
+  // Large values make sequential reads/writes more efficient, but random
+  // access less efficient. The default is 1024. We chose 4096 to match the
+  // Linux page size. Once the database is created, the cipher_page_size can
+  // never be changed, and the same value MUST be set explicitly every time it
+  // is opened!
+  exec_sql(db, "PRAGMA cipher_page_size = 4096");
+}
+
+bool sqlfs_create(const char *filepath, const char *password,
+    mode_t umask, uid_t uid, gid_t gid) {
+  bool success = false;
+  sqlite3 *db = NULL;
+  if (sqlite3_open_v2(filepath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
+    return false;
+  }
+
+  set_password(db, password);
+
+  int64_t version = -1;
+  get_user_version(db, &version);
+  if (version != 0) {
+    fprintf(stderr, "Wrong schema version: %lld (expected 0)\n", (long long)version);
+    goto failed;
+  }
+
+  exec_sql(db, "BEGIN TRANSACTION");
+
+#define SQL_STATEMENT(sql) exec_sql(db, #sql);
+#include "sqlfs_schema.h"
+#undef SQL_STATEMENT
+
+#define STR2(s) #s
+#define STR(s) STR2(s)
+  exec_sql(db, "PRAGMA user_version = " STR(SQLFS_SCHEMA_VERSION));
+#undef STR
+#undef STR2
+
+  create_root_directory(db, umask, uid, gid);
+
+  exec_sql(db, "COMMIT TRANSACTION");
+
+  success = true;
+
+failed:
+  CHECK(sqlite3_close(db) == SQLITE_OK);
+  return success;
+}
+
+struct sqlfs *sqlfs_open(
     const char *filepath, const char *password,
     mode_t umask, uid_t uid, gid_t gid) {
   struct sqlfs *sqlfs = calloc(1, sizeof(struct sqlfs));
-
   sqlfs->umask = umask;
   sqlfs->uid = uid;
   sqlfs->gid = gid;
   sqlfs->blocksize = 4096;  /* default Linux pagesize */
 
-  if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) goto failed;
+  if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) goto failed;
 
-  if (password != NULL) {
-    sqlite3_key(sqlfs->db, password, strlen(password));
-
-    // cipher_page_size must be set immediately after setting the password.
-    // Large values make sequential reads/writes more efficient, but random
-    // access less efficient. The default is 1024. We chose 4096 to match the
-    // Linux page size. Once the database is created, the cipher_page_size can
-    // never be changed, and the same value MUST be set explicitly every time it
-    // is opened!
-    exec_sql(sqlfs->db, "PRAGMA cipher_page_size = 4096");
-  }
+  set_password(sqlfs->db, password);
 
   int64_t version = -1;
-
-  if (!sql_get_user_version(sqlfs, &version)) {
+  if (!get_user_version(sqlfs->db, &version)) {
     fprintf(stderr, "Failed to query database version: %s!\n"
         "This probably means the database is encrypted with a different password.\n",
         sqlite3_errmsg(sqlfs->db));
     goto failed;
   }
 
-  if (version == 0) {
-    /* Database was newly created. Initialize it. */
-    exec_sql(sqlfs->db, "BEGIN TRANSACTION");
-#define SQL_STATEMENT(sql) exec_sql(sqlfs->db, #sql);
-#include "sqlfs_schema.h"
-#undef SQL_STATEMENT
-    exec_sql(sqlfs->db, "PRAGMA user_version = 1");
-    create_root_directory(sqlfs);
-    exec_sql(sqlfs->db, "COMMIT TRANSACTION");
-  } else if (version != SQLFS_SCHEMA_VERSION) {
-    fprintf(stderr, "Wrong schema version number: %d (expected %d)\n", (int)version, SQLFS_SCHEMA_VERSION);
+  if (version != SQLFS_SCHEMA_VERSION) {
+    fprintf(stderr, "Wrong schema version number: %lld (expected %d)\n", (long long)version, SQLFS_SCHEMA_VERSION);
     goto failed;
   }
 

@@ -68,20 +68,72 @@ static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs, struct intm
   return err;
 }
 
-struct args {
+// Overwrites the contents of `password` with zeroes, as a security measure.
+// `password` may be NULL, in which case this function does nothing.
+static void clear_password(char *password) {
+  if (password != NULL) {
+    memset(password, 0, strlen(password));
+  }
+}
+
+static char *get_password_with_prompt(const char *prompt) {
+  char *password = getpass(prompt);
+  if (password == NULL) {
+    fprintf(stderr, "Failed to read password.\n");
+    return NULL;
+  }
+  if (!*password) {
+    fprintf(stderr, "Empty password not accepted. (Use the -n/--no_password option to disable encryption.)\n");
+    return NULL;
+  }
+  return password;
+}
+
+// Returns a non-empty password in a temporary buffer, or NULL if the password
+// could not be read. (If NULL is returned, an appropriate error message has
+// been printed to stderr.)
+static char *get_password() {
+  return get_password_with_prompt("Password: ");
+}
+
+// Similar to get_password(), but prompts for the password twice, and verifies
+// the same password is entered each time. This is intended to prevent typos
+// when setting a new password.
+static char *get_new_password() {
+  char *copy = NULL;
+  char *password = get_password_with_prompt("New password: ");
+  if (password == NULL) {
+    goto finish;
+  }
+  copy = strdup(password);
+  CHECK(copy);
+  password = get_password_with_prompt("New password (again): ");
+  if (password == NULL) {
+    goto finish;
+  }
+  if (strcmp(password, copy) != 0) {
+    fprintf(stderr, "Passwords do not match.\n");
+    clear_password(password);
+    password = NULL;
+  }
+finish:
+  clear_password(copy);
+  free(copy);
+  return password;
+}
+
+struct mount_args {
   bool help;
   bool version;
   bool no_password;
-  bool create_db;
   const char *filepath;
 };
 
-struct args extract_arguments(int *argc, char **argv) {
-  struct args args = {
+struct mount_args extract_mount_arguments(int *argc, char **argv) {
+  struct mount_args args = {
     .help = false,
     .version = false,
     .no_password = false,
-    .create_db = false,
     .filepath = NULL };
   const int n = *argc;
   int j = 1;
@@ -90,8 +142,6 @@ struct args extract_arguments(int *argc, char **argv) {
     char *arg = argv[i];
     if (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0) {
       args.no_password = true;
-    } else if (strcmp(arg, "-c") == 0 || strcmp(arg, "--create") == 0) {
-      args.create_db = true;
     } else if (arg[0] != '-' && args.filepath == NULL) {
       args.filepath = arg;
     } else {
@@ -111,50 +161,125 @@ struct args extract_arguments(int *argc, char **argv) {
   return args;
 }
 
-// Verifies that either args->filepath exists if and only if args->create_db is false.
-static bool validate_filepath(const struct args *args) {
-  if (args->filepath == NULL) {
-    fprintf(stderr, "Missing database path argument.\n");
-    return false;
-  }
+static bool validate_database_path(const char *path, bool should_exist) {
   struct stat st;
-  if (stat(args->filepath, &st) != 0) {
+  if (stat(path, &st) != 0) {
     if (errno != ENOENT) {
       perror(NULL);
       return false;
     }
-    if (!args->create_db) {
-      fprintf(stderr, "Database '%s' does not exist. (Use the -c/--create option to create it.)\n", args->filepath);
+    if (should_exist) {
+      fprintf(stderr, "Database '%s' does not exist.\n", path);
       return false;
     }
   } else {
     if (!S_ISREG(st.st_mode)) {
-      fprintf(stderr, "Database '%s' is not a regular file.\n", args->filepath);
+      fprintf(stderr, "Database '%s' is not a regular file.\n", path);
       return false;
     }
-    if (args->create_db) {
-      fprintf(stderr, "Database '%s' already exists. (Remove the -c/--create option to open it.)\n", args->filepath);
+    if (!should_exist) {
+      fprintf(stderr, "Database '%s' already exists.\n", path);
       return false;
     }
   }
   return true;
 }
 
-int main(int argc, char *argv[]) {
-  struct args args = extract_arguments(&argc, argv);
+// If the only remaining argument is the database filepath, it is validated and
+// returned. In case of an error, an appropriate error message is printed and
+// NULL is returned, instead.
+static const char *get_database_argument(int argc, char *argv[], bool should_exist) {
+  if (argc < 2) {
+    fprintf(stderr, "Missing argument: database path.\n");
+    return NULL;
+  }
+  if (argc > 2) {
+    fprintf(stderr, "Unexpected arguments after database path.\n");
+    return NULL;
+  }
+  const char *path = argv[1];
+  if (!validate_database_path(path, should_exist)) {
+    return NULL;
+  }
+  return path;
+}
+
+static char *delete_arg(int index, int *argc, char *argv[]) {
+  int n = --*argc;
+  if (index > n) {
+    return NULL;
+  }
+  char *result = argv[index];
+  for (int i = index; i < n; ++i) {
+    argv[i] = argv[i + 1];
+  }
+  argv[n] = NULL;
+  return result;
+}
+
+static bool delete_arg_if_equal(int index, const char *value, int *argc, char *argv[]) {
+  if (index >= *argc || strcmp(argv[index], value) != 0) {
+    return false;
+  }
+  CHECK(strcmp(delete_arg(index, argc, argv), value) == 0);
+  return true;
+}
+
+static void print_version() {
+  printf("sqlfuse version %d.%02d (database version %d)\n",
+      SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFS_SCHEMA_VERSION);
+}
+
+static int run_help() {
+  print_version();
+  fputs("\nUsage:\n"
+      "    sqlfuse help\n"
+      "    sqlfuse create [-n|--no_password] <database>\n"
+      "    sqlfuse mount [-n|--no_password] <database> <mountpoint> [FUSE options]\n"
+      "    sqlfuse rekey <database>\n"
+      "    sqlfuse vacuum <database>\n"
+      "    sqlfuse fsck <database>\n", stdout);
+  return 0;
+}
+
+static int run_create(int argc, char *argv[]) {
+  bool no_password = delete_arg_if_equal(1, "-n", &argc, argv) ||
+    delete_arg_if_equal(1, "--no_password", &argc, argv);
+  const char *database = get_database_argument(argc, argv, false /* should_exist */);
+  if (database == NULL) {
+    return 1;
+  }
+  char *password = NULL;
+  if (!no_password) {
+    password = get_new_password();
+    if (password == NULL) {
+      return 1;
+    }
+  }
+  bool success = sqlfs_create(database, password, getumask(), geteuid(), getegid());
+  clear_password(password);
+  password = NULL;
+  if (!success) {
+    fprintf(stderr, "Failed to create database '%s'.\n", database);
+    return 1;
+  }
+  printf("Created database '%s' (%s)\n", database, no_password ? "not encrypted" : "encrypted");
+  return 0;
+}
+
+static int run_mount(int argc, char *argv[]) {
+  struct mount_args args = extract_mount_arguments(&argc, argv);
 
   if (args.help || args.version) {
     if (args.version) {
-      printf("sqlfuse version %d.%02d (database version %d)\n",
-          SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFS_SCHEMA_VERSION);
+      print_version();
     }
     if (args.help) {
       fputs(
-          "Usage: sqlfuse [options] <database> <mountpoint>\n"
+          "Usage: sqlfuse mount [options] <database> <mountpoint> [fuse options]\n"
           "\n"
-          "Supported sqlfuse options:\n"
+          "Supported options:\n"
           "    -n   --no_password    don't prompt for password (disables encryption)\n"
-          "    -c   --create         create a new database\n"
           "\n",
           stdout);
     }
@@ -165,24 +290,21 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  if (!validate_filepath(&args)) {
+  if (!validate_database_path(args.filepath, true)) {
     return 1;
   }
 
   char *password = NULL;
   if (!args.no_password) {
-    password = getpass("Password: ");
+    password = get_password();
     if (password == NULL) {
-      fprintf(stderr, "Failed to read password.\n");
-      return 1;
-    }
-    if (!*password) {
-      fprintf(stderr, "Empty password not accepted. (Use the -n/--no_password option to disable encryption.)\n");
       return 1;
     }
   }
 
-  struct sqlfs *sqlfs = sqlfs_create(args.filepath, password, getumask(), geteuid(), getegid());
+  struct sqlfs *sqlfs = sqlfs_open(args.filepath, password, getumask(), geteuid(), getegid());
+  clear_password(password);
+  password = NULL;
   if (password != NULL) {
     // Clean password for security. The derived key is still in memory, but it's
     // better than nothing.
@@ -207,4 +329,66 @@ int main(int argc, char *argv[]) {
   intmap_destroy(lookups);
   sqlfs_destroy(sqlfs);
   return err ? 1 : 0;
+}
+
+static int run_rekey(int argc, char *argv[]) {
+  const char *database = get_database_argument(argc, argv, true /* must_exist */);
+  if (database == NULL) {
+    return 1;
+  }
+  // TODO: implement this!
+  fprintf(stderr, "Command 'rekey' not yet implemented!\n");
+  return 1;
+}
+
+static int run_vacuum(int argc, char *argv[]) {
+  const char *database = get_database_argument(argc, argv, true /* must_exist */);
+  if (database == NULL) {
+    return 1;
+  }
+  // TODO: implement this!
+  fprintf(stderr, "Command 'vacuum' not yet implemented!\n");
+  return 1;
+}
+
+static int run_fsck(int argc, char *argv[]) {
+  const char *database = get_database_argument(argc, argv, true /* must_exist */);
+  if (database == NULL) {
+    return 1;
+  }
+  // TODO: implement this!
+  fprintf(stderr, "Command 'fsck' not yet implemented!\n");
+  return 1;
+}
+
+int main(int argc, char *argv[]) {
+  const char *command = argc < 2 ? "help" : delete_arg(1, &argc, argv);
+
+  if (strcmp(command, "create") == 0) {
+    return run_create(argc, argv);
+  }
+
+  if (strcmp(command, "mount") == 0) {
+    return run_mount(argc, argv);
+  }
+
+  if (strcmp(command, "rekey") == 0) {
+    return run_rekey(argc, argv);
+  }
+
+  if (strcmp(command, "vacuum") == 0) {
+    return run_vacuum(argc, argv);
+  }
+
+  if (strcmp(command, "fsck") == 0) {
+    return run_fsck(argc, argv);
+  }
+
+  if (strcmp(command, "help") == 0) {
+    return run_help();
+  }
+
+  run_help();
+  fprintf(stderr, "\nUnsupported command: '%s'\n", command);
+  return 1;
 }

@@ -3,7 +3,7 @@
 
 // Whenever the database schema is modified in a significant way,
 // SQLFS_SCHEMA_VERSION must be incremented, and appropriate upgrade logic must
-// be added to sqlfs_create().
+// be added to sqlfs_open().
 
 SQL_STATEMENT(
   // Metadata table stores inode attributes. This is what's returned by stat().
