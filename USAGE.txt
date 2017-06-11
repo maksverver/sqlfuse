@@ -1,0 +1,55 @@
+=== EXAMPLE USAGE ===
+
+% sqlfuse create example.db
+% mkdir mnt
+% sqlfuse mount example.db mnt/
+% echo 'Hello world!' > mnt/hello.txt
+% fusermount -u mnt/
+
+
+=== COMMAND REFERENCE ===
+
+sqlfuse help
+
+  Shows basic usage information.
+
+
+sqlfuse create [-n|--no_password] <database>
+
+  -n: Create an unencrypted database without a password.
+
+  Prompts for a new password, unless -n is specified.
+
+
+sqlfuse mount [-n|--no_password] <database> <mountpoint> [FUSE options]
+
+  -n: Mount an unencrypted database without a password.
+
+  Promps for a password, unless -n is specified.
+
+  Useful FUSE options:
+
+    -h  To print usage information.
+    -V  To print version information.
+    -s  Run in single-threaded mode.
+    -f  Run in the foreground.
+    -d  Enable debug-mode (implies -f); more verbose logging.
+
+
+sqlfuse rekey <database>
+
+  Change the password on an encrypted database. (Cannot be used to enable/
+  disable encryption.) Will prompt for the old and new password.
+
+
+sqlfuse vacuum <database>
+
+  Optimizes the database file (reducing file size and internal fragmentation)
+  by purging deleted files/directories and vacuuming the database.
+
+
+sqlfuse fsck <database>
+
+  Checks the consistency of the filesystem. This is a read-only operation:
+  it will warn if it encounters any errors, but will not attempt to fix them.
+
