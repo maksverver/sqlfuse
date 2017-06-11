@@ -145,8 +145,8 @@ int main(int argc, char *argv[]) {
 
   if (args.help || args.version) {
     if (args.version) {
-      // TODO: print sqlfuse version?
-      printf("sqlfuse version 0.0\n");
+      printf("sqlfuse version %d.%02d (database version %d)\n",
+          SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFS_SCHEMA_VERSION);
     }
     if (args.help) {
       fputs(

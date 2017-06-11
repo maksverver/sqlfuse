@@ -842,8 +842,8 @@ struct sqlfs *sqlfs_create(
     exec_sql(sqlfs->db, "PRAGMA user_version = 1");
     create_root_directory(sqlfs);
     exec_sql(sqlfs->db, "COMMIT TRANSACTION");
-  } else if (version != 1) {
-    fprintf(stderr, "Wrong version number: %d (expected 1)\n", (int)version);
+  } else if (version != SQLFS_SCHEMA_VERSION) {
+    fprintf(stderr, "Wrong schema version number: %d (expected %d)\n", (int)version, SQLFS_SCHEMA_VERSION);
     goto failed;
   }
 

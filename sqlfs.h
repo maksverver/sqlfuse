@@ -14,6 +14,9 @@
 #define SQLFS_INO_NONE ((ino_t) 0)
 #define SQLFS_INO_ROOT ((ino_t) 1)
 
+// Version of the database schema. (This value is mostly useful for debugging.)
+#define SQLFS_SCHEMA_VERSION 1
+
 // The state for a single filesystem.
 struct sqlfs;
 

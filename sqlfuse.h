@@ -11,6 +11,9 @@
 
 #include "fuse_lowlevel.h"
 
+#define SQLFUSE_VERSION_MAJOR 0
+#define SQLFUSE_VERSION_MINOR 1
+
 // If set, calls to the functions defined in sqlfuse_ops will be printed to
 // stderr (with an interesting subset of their arguments). This is mostly useful
 // for debugging.

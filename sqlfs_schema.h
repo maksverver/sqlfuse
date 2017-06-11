@@ -1,6 +1,10 @@
 // Defines the database schema used to model the filesystem.
 // This is intended to be included from sqlfs.c.
 
+// Whenever the database schema is modified in a significant way,
+// SQLFS_SCHEMA_VERSION must be incremented, and appropriate upgrade logic must
+// be added to sqlfs_create().
+
 SQL_STATEMENT(
   // Metadata table stores inode attributes. This is what's returned by stat().
   //
