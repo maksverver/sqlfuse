@@ -799,12 +799,14 @@ static int sql_delete_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t from_idx)
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
-static void set_password(sqlite3 *db, const char *password) {
+static bool set_password(sqlite3 *db, const char *password) {
   if (password == NULL) {
-    return;
+    return true;
   }
 
-  sqlite3_key(db, password, strlen(password));
+  if (sqlite3_key(db, password, strlen(password)) != SQLITE_OK) {
+    return false;
+  }
 
   // cipher_page_size must be set immediately after setting the password.
   // Large values make sequential reads/writes more efficient, but random
@@ -813,6 +815,7 @@ static void set_password(sqlite3 *db, const char *password) {
   // never be changed, and the same value MUST be set explicitly every time it
   // is opened!
   exec_sql(db, "PRAGMA cipher_page_size = 4096");
+  return true;
 }
 
 bool sqlfs_create(const char *filepath, const char *password,
@@ -823,7 +826,9 @@ bool sqlfs_create(const char *filepath, const char *password,
     return false;
   }
 
-  set_password(db, password);
+  if (!set_password(db, password)) {
+    return false;
+  }
 
   int64_t version = -1;
   get_user_version(db, &version);
@@ -866,7 +871,7 @@ struct sqlfs *sqlfs_open(
 
   if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) goto failed;
 
-  set_password(sqlfs->db, password);
+  if (!set_password(sqlfs->db, password)) goto failed;
 
   int64_t version = -1;
   if (!get_user_version(sqlfs->db, &version)) {
