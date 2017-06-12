@@ -890,11 +890,11 @@ struct sqlfs *sqlfs_open(
   return sqlfs;
 
 failed:
-  sqlfs_destroy(sqlfs);
+  sqlfs_close(sqlfs);
   return NULL;
 }
 
-void sqlfs_destroy(struct sqlfs *sqlfs) {
+void sqlfs_close(struct sqlfs *sqlfs) {
   // From the SQLite docs:
   //  "Applications should finalize all prepared statements, close all BLOB
   //   handles, and finish all sqlite3_backup objects associated with the

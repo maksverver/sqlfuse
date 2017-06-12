@@ -37,7 +37,7 @@ bool sqlfs_create(
 //
 // Returns NULL if the file could not be opened (e.g. invalid path, incorrect
 // password, invalid file format, etc.). Otherwise, returns a pointer to the
-// filesystem state, which must be destroyed by sqlfs_destroy() later.
+// filesystem state, which must be released by calling sqlfs_close() later.
 //
 //  filepath: path to the database file.
 //  password: password to use. May be NULL to disable encryption.
@@ -48,8 +48,8 @@ struct sqlfs *sqlfs_open(
     const char *filepath, const char *password,
     mode_t umask, uid_t uid, gid_t gid);
 
-// Destroys the filesystem state. Afterwards, the state should not be used.
-void sqlfs_destroy(struct sqlfs *sqlfs);
+// Releases the filesystem state. Afterwards, the state should not be used.
+void sqlfs_close(struct sqlfs *sqlfs);
 
 // Returns the current blocksize, which will be used to create new files.
 int sqlfs_get_blocksize(const struct sqlfs *sqlfs);
@@ -108,7 +108,7 @@ int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *chi
 // in lexicographical order. Note that the "." entry is not included at all!
 //
 // Within a single sqlfs instance, only one directory may be opened at a time,
-// and no other operations (including sqlfs_destroy()) may be performed until
+// and no other operations (including sqlfs_close()) may be performed until
 // it is closed. That means the user should typically keep a directory open
 // for a very short time only, and treat the open, next, and close calls as a
 // single operation.
@@ -118,7 +118,7 @@ int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *chi
 //
 // Example usage:
 //
-//   struct sqlfs *sqlfs = sqlfs_open(...);
+//   struct sqlfs *sqlfs = ...;
 //   struct ino_t dir_ino = 1;
 //   struct sqlfs_dir *dir = sqlfs_dir_open(sqlfs, dir_ino, NULL);
 //

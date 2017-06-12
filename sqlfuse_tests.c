@@ -199,7 +199,7 @@ static void teardown() {
   fuse_session = NULL;
   memset(&fuse_args, 0, sizeof(fuse_args));
 
-  sqlfs_destroy(sqlfs);
+  sqlfs_close(sqlfs);
   sqlfuse_userdata.sqlfs = sqlfs = NULL;
 
   EXPECT_EQ(intmap_size(lookups), 0);
