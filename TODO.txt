@@ -1,6 +1,5 @@
 Next:
   - think about a cool name & rebrand everything?
-  - only trace in debug mode
   - implement rekey command:
       should prompt once for old password, twice for new password.
       implement using sqlite3_rekey.

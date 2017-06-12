@@ -38,10 +38,6 @@ static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs, struct intm
     }
     logging_enabled = foreground != 0;
 
-    // Ideally, we'd enable this only in debug mode. (We'd have to parse the
-    // command line flags and check for -d, -o debug, or -odebug).
-    sqlfuse_tracing_enabled = false;
-
     struct fuse_chan *chan = fuse_mount(mountpoint, &args);
     if (chan != NULL) {
       struct sqlfuse_userdata sqlfuse_userdata = { .sqlfs = sqlfs, .lookups = lookups };
@@ -126,6 +122,7 @@ struct mount_args {
   bool help;
   bool version;
   bool no_password;
+  bool debug;
   const char *filepath;
 };
 
@@ -134,6 +131,7 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
     .help = false,
     .version = false,
     .no_password = false,
+    .debug = false,
     .filepath = NULL };
   const int n = *argc;
   int j = 1;
@@ -148,11 +146,24 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
       // Keep this argument.
       argv[j++] = arg;
 
-      // -h/--help and -V/--version will be passed through to fuse_main().
-      if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
+      // Parse options which will be passed through to fuse_main:
+      //  -h / --help
+      //  -V / --version
+      //  -d / -odebug / -o debug
+      if (strcmp(arg, "-o") == 0) {
+        if (i + 1 < n) {
+          arg = argv[++i];
+          argv[j++] = arg;
+          if (strcmp(arg, "debug") == 0) {
+            args.debug = true;
+          }
+        }
+      } else if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
         args.help = true;
       } else if (strcmp(arg, "-V") == 0 || strcmp(arg, "--version") == 0) {
         args.version = true;
+      } else if (strcmp(arg, "-d") == 0 || strcmp(arg, "-odebug") == 0) {
+        args.debug = true;
       }
     }
   }
@@ -269,6 +280,8 @@ static int run_create(int argc, char *argv[]) {
 
 static int run_mount(int argc, char *argv[]) {
   struct mount_args args = extract_mount_arguments(&argc, argv);
+
+  sqlfuse_tracing_enabled = args.debug;
 
   if (args.help || args.version) {
     if (args.version) {
