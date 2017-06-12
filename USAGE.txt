@@ -6,6 +6,12 @@
 % echo 'Hello world!' > mnt/hello.txt
 % fusermount -u mnt/
 
+To view more mount options:
+
+% sqlfuse mount -h
+
+(Not all FUSE options are supported!)
+
 
 === COMMAND REFERENCE ===
 
