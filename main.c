@@ -318,12 +318,6 @@ static int run_mount(int argc, char *argv[]) {
   struct sqlfs *sqlfs = sqlfs_open(args.filepath, password, getumask(), geteuid(), getegid());
   clear_password(password);
   password = NULL;
-  if (password != NULL) {
-    // Clean password for security. The derived key is still in memory, but it's
-    // better than nothing.
-    memset(password, 0, strlen(password));
-    password = NULL;
-  }
   if (!sqlfs) {
     fprintf(stderr, "Failed to open database '%s'.\n", args.filepath);
     return 1;
