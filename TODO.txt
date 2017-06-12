@@ -1,11 +1,12 @@
 Next:
+  - code cleanup: inline blocks with a single statement?
   - think about a cool name & rebrand everything?
-  - implement rekey command:
-      should prompt once for old password, twice for new password.
-      implement using sqlite3_rekey.
   - implement vacuum command:
       should purge first, then vacuum.
   - implement fsck command (verify that it works on read only files)
+    (once implemented, add it to teardown() in sqlfuse_test to verify that each
+    test case leaves the filesystem in a consistent state, without dangling
+    pointers and so on).
   - Revisit transaction functions (sql_begin_transaction() etc.): they currently
     emulate nested transactions with savepoints. It might be less confusing if they
     were named after the SQL statements they actually execute. Maybe the functions
@@ -81,6 +82,14 @@ Decisions to document somewhere:
   - Permission checking is deferred to libfuse. This has not been tested.
     It's probably not safe to share the filesystem with others (i.e. using the
     -o allow_others mount option).
+  - No separate command to inspect/dump the database. The sqlcipher CLI can be
+    used as follows:
+
+      % sqlcipher example.db
+      sqlite> PRAGMA KEY 'password'  # Careful! Stored in ~/.sqlite_history!
+      sqlite> RAGMA cipher_page_size = 4096;
+      sqlite> .schema  # to view the database schema
+      sqlite> .dump    # to dump the database schema with contents
 
 Future ideas:
   - Transparent compression of file data? Or maybe this can be implemented on a
@@ -90,12 +99,6 @@ General TODO:
   - create a README with some information and usage notes.
   - fully document the schema definition (wait until the implementation is
     further along; no point documenting it when it's likely to change)
-  - fsck tool that checks internal consistency?
-    (once implemented, add it to teardown() in sqlfuse_test to verify that each
-    test case leaves the filesystem in a consistent state, without dangling
-    pointers and so on).
-  - dump tool to dump contents of database?
-  - another tool to rekey the database?
 
 Things I learned about fuse:
   - direct_io mode is not available in low-level mode. Without it (by default),

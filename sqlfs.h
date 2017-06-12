@@ -51,6 +51,14 @@ struct sqlfs *sqlfs_open(
 // Releases the filesystem state. Afterwards, the state should not be used.
 void sqlfs_close(struct sqlfs *sqlfs);
 
+// Changes the password on an encrypted database.
+//
+// The database must have been created with a non-NULL password, and the new
+// password must also not be NULL.
+//
+// Returns true if the password was succesfully changed, false otherwise.
+bool sqlfs_rekey(struct sqlfs *sqlfs, const char *new_password);
+
 // Returns the current blocksize, which will be used to create new files.
 int sqlfs_get_blocksize(const struct sqlfs *sqlfs);
 

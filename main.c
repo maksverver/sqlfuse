@@ -349,9 +349,38 @@ static int run_rekey(int argc, char *argv[]) {
   if (database == NULL) {
     return 1;
   }
-  // TODO: implement this!
-  fprintf(stderr, "Command 'rekey' not yet implemented!\n");
-  return 1;
+
+  int result = 1;  // exit failure
+  struct sqlfs *sqlfs = NULL;
+  char *old_password = NULL;
+  char *new_password = NULL;
+
+  old_password = get_password();
+  if (old_password == NULL) {
+    goto finish;
+  }
+  sqlfs = sqlfs_open(database, old_password, getumask(), geteuid(), getegid());
+  if (sqlfs == NULL) {
+    fprintf(stderr, "Failed to open database '%s'.\n", database);
+    goto finish;
+  }
+  new_password = get_new_password();
+  if (new_password == NULL) {
+    goto finish;
+  }
+  if (!sqlfs_rekey(sqlfs, new_password)) {
+    fprintf(stderr, "Could not rekey database '%s' (not writable?)\n", database);
+    goto finish;
+  }
+  result = 0;  // exit successfully
+
+finish:
+  if (sqlfs != NULL) {
+    sqlfs_close(sqlfs);
+  }
+  clear_password(old_password);
+  clear_password(new_password);
+  return result;
 }
 
 static int run_vacuum(int argc, char *argv[]) {
