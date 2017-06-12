@@ -335,12 +335,12 @@ static int run_mount(int argc, char *argv[]) {
   struct intmap *lookups = intmap_create();
   if (lookups == NULL) {
     fprintf(stderr, "Failed to create intmap.\n");
-    sqlfs_destroy(sqlfs);
+    sqlfs_close(sqlfs);
     return 1;
   }
   int err = sqlfuse_main(argc, argv, sqlfs, lookups);
   intmap_destroy(lookups);
-  sqlfs_destroy(sqlfs);
+  sqlfs_close(sqlfs);
   return err ? 1 : 0;
 }
 
