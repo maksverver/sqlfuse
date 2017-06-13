@@ -13,3 +13,9 @@ Mounting a database in writable mode requires not just write permission on the
 database file itself, but also write (and execute) permission on the directory.
 The reason is that SQLite will create temporary files (such as journals) while
 executing database transactions.
+
+Performance note:
+
+ - Writing of large files seems to be very slow. This is probably because FUSE
+   splits writes into small chunks, and sqlfs will commit every write to disk
+   individually, which is very slow. On the upside: reads are very fast.
