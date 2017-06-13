@@ -248,8 +248,8 @@ static int run_help() {
       "    sqlfuse create [-n|--no_password] <database>\n"
       "    sqlfuse mount [-n|--no_password] <database> <mountpoint> [FUSE options]\n"
       "    sqlfuse rekey <database>\n"
-      "    sqlfuse vacuum <database>\n"
-      "    sqlfuse fsck <database>\n", stdout);
+      "    sqlfuse vacuum [-n|--no_password] <database>\n"
+      "    sqlfuse fsck [-n|--no_password] <database>\n", stdout);
   return 0;
 }
 
@@ -377,21 +377,47 @@ finish:
   return result;
 }
 
-static int run_vacuum(int argc, char *argv[]) {
-  const char *database = get_database_argument(argc, argv, true /* must_exist */);
+static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[]) {
+  bool no_password = delete_arg_if_equal(1, "-n", &argc, argv) ||
+    delete_arg_if_equal(1, "--no_password", &argc, argv);
+  const char *database = get_database_argument(argc, argv, true /* should_exist */);
   if (database == NULL) {
+    return NULL;
+  }
+  char *password = NULL;
+  if (!no_password) {
+    password = get_password();
+    if (password == NULL) {
+      return NULL;
+    }
+  }
+  return sqlfs_open(database, password, getumask(), geteuid(), getegid());
+}
+
+static int run_vacuum(int argc, char *argv[]) {
+  struct sqlfs *sqlfs = open_sqlfs_from_args(argc, argv);
+  if (sqlfs == NULL) {
     return 1;
   }
-  // TODO: implement this!
-  fprintf(stderr, "Command 'vacuum' not yet implemented!\n");
-  return 1;
+  int status = 1;  // exit failure
+  if (sqlfs_purge_all(sqlfs) != 0) {
+    fprintf(stderr, "Failed to purge unlinked files/directories.\n");
+  } else if (!sqlfs_vacuum(sqlfs)) {
+    fprintf(stderr, "Failed to vacuum the database.\n");
+  } else {
+    printf("Database succesfully vacuumed.\n");
+    status = 0;  // exit successfully
+  }
+  sqlfs_close(sqlfs);
+  return status;
 }
 
 static int run_fsck(int argc, char *argv[]) {
-  const char *database = get_database_argument(argc, argv, true /* must_exist */);
-  if (database == NULL) {
+  struct sqlfs *sqlfs = open_sqlfs_from_args(argc, argv);
+  if (sqlfs == NULL) {
     return 1;
   }
+  sqlfs_close(sqlfs);
   // TODO: implement this!
   fprintf(stderr, "Command 'fsck' not yet implemented!\n");
   return 1;

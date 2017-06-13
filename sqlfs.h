@@ -59,6 +59,11 @@ void sqlfs_close(struct sqlfs *sqlfs);
 // Returns true if the password was succesfully changed, false otherwise.
 bool sqlfs_rekey(struct sqlfs *sqlfs, const char *new_password);
 
+// Vacuums the underlying database to reduce fragmentation and reclaim space.
+//
+// Returns true on success, or false if a database operation failed.
+bool sqlfs_vacuum(struct sqlfs *sqlfs);
+
 // Returns the current blocksize, which will be used to create new files.
 int sqlfs_get_blocksize(const struct sqlfs *sqlfs);
 

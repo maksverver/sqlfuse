@@ -48,13 +48,13 @@ sqlfuse rekey <database>
   disable encryption.) Will prompt for the old and new password.
 
 
-sqlfuse vacuum <database>
+sqlfuse vacuum [-n|--no_password] <database>
 
   Optimizes the database file (reducing file size and internal fragmentation)
   by purging deleted files/directories and vacuuming the database.
 
 
-sqlfuse fsck <database>
+sqlfuse fsck [-n|--no_password] <database>
 
   Checks the consistency of the filesystem. This is a read-only operation:
   it will warn if it encounters any errors, but will not attempt to fix them.

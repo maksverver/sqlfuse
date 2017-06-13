@@ -1,8 +1,9 @@
 Next:
+  - sqlfs: make exec_sql() return a bool, and for existing calls, either replace
+    them with CHECK(exec_sql), or propagate the error correctly.
+  - rename fsck to 'check'
   - code cleanup: inline blocks with a single statement?
   - think about a cool name & rebrand everything?
-  - implement vacuum command:
-      should purge first, then vacuum.
   - implement fsck command (verify that it works on read only files)
     (once implemented, add it to teardown() in sqlfuse_test to verify that each
     test case leaves the filesystem in a consistent state, without dangling
@@ -30,6 +31,10 @@ Next:
   - Consider calling sqlfs_purge_all() in destroy rather than purging each open
     inode individually? (It would have the benefit that sqlfs_purge_all() is
     more efficient because it can use an index to find unlinked entries.)
+  - sqlfs: make the functions that return a `bool` (true/false) return an `int`
+    instead (0/nonzero). This seems more consistent.
+  - Make writing of large files more efficient, either by increasing block size
+    or disabling full-sync-on-commit (if that's even possible).
 
 Things to test:
   - some manual smoke-testing: verify that files are actually purged during
@@ -97,6 +102,8 @@ Future ideas:
 
 General TODO:
   - create a README with some information and usage notes.
+    (This should contain everything which is currently spread over USAGE,
+     NOTES, and TODO, though pure TODOs can stay in this file.)
   - fully document the schema definition (wait until the implementation is
     further along; no point documenting it when it's likely to change)
 
