@@ -7,7 +7,7 @@
 #define CHECK(expr) \
    do { \
     if (!(expr)) { \
-      check_fail(__FILE__, __LINE__, #expr); \
+      check_fail(__FILE__, __LINE__, __func__, #expr); \
     } \
   } while (false)
 
@@ -18,7 +18,7 @@
     } \
   } while (false)
 
-void check_fail(const char *file, int line, const char *expr);
+void check_fail(const char *file, int line, const char *func, const char *expr);
 
 extern bool logging_enabled;
 
