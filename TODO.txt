@@ -1,6 +1,8 @@
 Milestone 0.9:
-  - rename fsck to 'check'
   - think about a cool name & rebrand everything?
+  - Maybe rename `vacuum` to something more intuitive? (Effect: causes the whole
+    database to be rewritten, with unused space reclaimed. Maybe `compact` or
+    `rewrite` or `reclaim`?)
   - Revisit transaction functions (sql_begin_transaction() etc.): they currently
     emulate nested transactions with savepoints. It might be less confusing if they
     were named after the SQL statements they actually execute. Maybe the functions
@@ -29,7 +31,7 @@ Milestone 0.9:
   - clean-up TODO and documentation.
 
 Milestone 1.0:
-  - implement fsck command (verify that it works on read only files)
+  - implement 'check' command (verify that it works on read only files)
     (once implemented, add it to teardown() in sqlfuse_test to verify that each
     test case leaves the filesystem in a consistent state, without dangling
     pointers and so on).

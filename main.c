@@ -249,7 +249,7 @@ static int run_help() {
       "    sqlfuse mount [-n|--no_password] <database> <mountpoint> [FUSE options]\n"
       "    sqlfuse rekey <database>\n"
       "    sqlfuse vacuum [-n|--no_password] <database>\n"
-      "    sqlfuse fsck [-n|--no_password] <database>\n", stdout);
+      "    sqlfuse check [-n|--no_password] <database>\n", stdout);
   return 0;
 }
 
@@ -412,14 +412,14 @@ static int run_vacuum(int argc, char *argv[]) {
   return status;
 }
 
-static int run_fsck(int argc, char *argv[]) {
+static int run_check(int argc, char *argv[]) {
   struct sqlfs *sqlfs = open_sqlfs_from_args(argc, argv);
   if (sqlfs == NULL) {
     return 1;
   }
   sqlfs_close(sqlfs);
   // TODO: implement this!
-  fprintf(stderr, "Command 'fsck' not yet implemented!\n");
+  fprintf(stderr, "Command 'check' not yet implemented!\n");
   return 1;
 }
 
@@ -442,8 +442,8 @@ int main(int argc, char *argv[]) {
     return run_vacuum(argc, argv);
   }
 
-  if (strcmp(command, "fsck") == 0) {
-    return run_fsck(argc, argv);
+  if (strcmp(command, "check") == 0) {
+    return run_check(argc, argv);
   }
 
   if (strcmp(command, "help") == 0) {
