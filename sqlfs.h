@@ -6,7 +6,6 @@
 #ifndef SQLFS_H_INCLUDED
 #define SQLFS_H_INCLUDED
 
-#include <stdbool.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -28,8 +27,8 @@ struct sqlfs;
 //  uid: user id to use for the root directory.
 //  gid: group id to use for the root directory.
 //
-// Returns true if the filesystem was created succesfully, false otherwise.
-bool sqlfs_create(
+// Returns 0 if the filesystem was created successfully, or EIO otherwise.
+int sqlfs_create(
     const char *filepath, const char *password,
     mode_t umask, uid_t uid, gid_t gid);
 

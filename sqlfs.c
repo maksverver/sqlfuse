@@ -818,18 +818,18 @@ static bool set_password(sqlite3 *db, const char *password) {
   return exec_sql(db, "PRAGMA cipher_page_size = 4096");
 }
 
-bool sqlfs_create(const char *filepath, const char *password,
+int sqlfs_create(const char *filepath, const char *password,
     mode_t umask, uid_t uid, gid_t gid) {
-  bool success = false;
   sqlite3 *db = NULL;
   if (sqlite3_open_v2(filepath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
-    return false;
+    return EIO;
   }
 
   if (!set_password(db, password)) {
-    return false;
+    return EIO;
   }
 
+  int err = EIO;
   int64_t version = -1;
   get_user_version(db, &version);
   if (version != 0) {
@@ -853,11 +853,11 @@ bool sqlfs_create(const char *filepath, const char *password,
 
   CHECK(exec_sql(db, "COMMIT TRANSACTION"));
 
-  success = true;
+  err = 0;
 
 failed:
   CHECK(sqlite3_close(db) == SQLITE_OK);
-  return success;
+  return err;
 }
 
 struct sqlfs *sqlfs_open(

@@ -23,11 +23,6 @@ Milestone 0.9:
       sql_release_savepoint(sqlfs);
       return err;
 
-  - Consider calling sqlfs_purge_all() in destroy rather than purging each open
-    inode individually? (It would have the benefit that sqlfs_purge_all() is
-    more efficient because it can use an index to find unlinked entries.)
-  - sqlfs: make the functions that return a `bool` (true/false) return an `int`
-    instead (0/nonzero). This seems more consistent.
   - clean-up TODO and documentation.
 
 Milestone 1.0:
@@ -37,6 +32,11 @@ Milestone 1.0:
     pointers and so on).
   - Make writing of large files more efficient, either by increasing block size
     or disabling full-sync-on-commit (if that's even possible).
+
+Maybe later:
+  - Consider calling sqlfs_purge_all() in destroy rather than purging each open
+    inode individually? (It would have the benefit that sqlfs_purge_all() is
+    more efficient because it can use an index to find unlinked entries.)
 
 Things to test:
   - some manual smoke-testing: verify that files are actually purged during

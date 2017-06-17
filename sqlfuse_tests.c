@@ -150,7 +150,7 @@ static void setup() {
   uid_t uid = geteuid();
   gid_t gid = getegid();
   const char *password = NULL;
-  CHECK(sqlfs_create(database, password, umask, uid, gid));
+  CHECK(sqlfs_create(database, password, umask, uid, gid) == 0);
   sqlfs = sqlfs_open(database, password, umask, uid, gid);
   CHECK(sqlfs);
 

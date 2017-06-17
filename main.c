@@ -267,10 +267,10 @@ static int run_create(int argc, char *argv[]) {
       return 1;
     }
   }
-  bool success = sqlfs_create(database, password, getumask(), geteuid(), getegid());
+  int err = sqlfs_create(database, password, getumask(), geteuid(), getegid());
   clear_password(password);
   password = NULL;
-  if (!success) {
+  if (err != 0) {
     fprintf(stderr, "Failed to create database '%s'.\n", database);
     return 1;
   }
