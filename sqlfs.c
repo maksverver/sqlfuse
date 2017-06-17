@@ -257,7 +257,9 @@ static bool prepare(sqlite3 *db, const char *sql, sqlite3_stmt **stmt) {
 
 static bool exec_sql(sqlite3 *db, const char *sql) {
   sqlite3_stmt *stmt = NULL;
-  CHECK(prepare(db, sql, &stmt));
+  if (!prepare(db, sql, &stmt)) {
+    return false;
+  }
   int status = sqlite3_step(stmt);
   sqlite3_finalize(stmt);
   return status == SQLITE_DONE;
@@ -342,27 +344,37 @@ static struct timespec nanos_to_timespec(int64_t nanos) {
 // This is basically a special-case version of sqlfs_mkdir that doesn't use
 // prepared statements so it can be called during initialization, before the
 // schema has been committed.
-static void create_root_directory(sqlite3 *db, mode_t umask, uid_t uid, gid_t gid) {
-  sqlite3_stmt *stmt = NULL;
-
+static bool create_root_directory(sqlite3 *db, mode_t umask, uid_t uid, gid_t gid) {
   const mode_t mode = (0777 &~ umask) | S_IFDIR;
-  CHECK(prepare(db, "INSERT INTO metadata(ino, mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?, ?)", &stmt));
-  CHECK(sqlite3_bind_int64(stmt, 1, SQLFS_INO_ROOT) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 2, mode) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 3, 1) == SQLITE_OK);  // nlink
-  CHECK(sqlite3_bind_int64(stmt, 4, uid) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 5, gid) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 6, current_time_nanos()) == SQLITE_OK);
-  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-  sqlite3_finalize(stmt);
-
-  CHECK(prepare(db, "INSERT INTO direntries(dir_ino, entry_name, entry_ino, entry_type) VALUES (?, ?, ?, ?)", &stmt));
-  CHECK(sqlite3_bind_int64(stmt, 1, SQLFS_INO_ROOT) == SQLITE_OK);
-  CHECK(sqlite3_bind_text(stmt, 2, "", 0, SQLITE_STATIC) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 3, SQLFS_INO_ROOT) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, 4, mode >> 12) == SQLITE_OK);
-  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-  sqlite3_finalize(stmt);
+  {
+    sqlite3_stmt *stmt = NULL;
+    CHECK(prepare(db, "INSERT INTO metadata(ino, mode, nlink, uid, gid, mtime) VALUES (?, ?, ?, ?, ?, ?)", &stmt));
+    CHECK(sqlite3_bind_int64(stmt, 1, SQLFS_INO_ROOT) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(stmt, 2, mode) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(stmt, 3, 1) == SQLITE_OK);  // nlink
+    CHECK(sqlite3_bind_int64(stmt, 4, uid) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(stmt, 5, gid) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(stmt, 6, current_time_nanos()) == SQLITE_OK);
+    int status = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (status != SQLITE_DONE) {
+      return false;
+    }
+  }
+  {
+    sqlite3_stmt *stmt = NULL;
+    CHECK(prepare(db, "INSERT INTO direntries(dir_ino, entry_name, entry_ino, entry_type) VALUES (?, ?, ?, ?)", &stmt));
+    CHECK(sqlite3_bind_int64(stmt, 1, SQLFS_INO_ROOT) == SQLITE_OK);
+    CHECK(sqlite3_bind_text(stmt, 2, "", 0, SQLITE_STATIC) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(stmt, 3, SQLFS_INO_ROOT) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(stmt, 4, mode >> 12) == SQLITE_OK);
+    int status = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (status != SQLITE_DONE) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static void fill_stat(sqlite3_stmt *stmt, struct stat *stat, int default_blocksize) {
@@ -820,43 +832,56 @@ static bool set_password(sqlite3 *db, const char *password) {
 
 int sqlfs_create(const char *filepath, const char *password,
     mode_t umask, uid_t uid, gid_t gid) {
+  int err = EIO;
   sqlite3 *db = NULL;
+
   if (sqlite3_open_v2(filepath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
-    return EIO;
+    goto failure;
   }
 
   if (!set_password(db, password)) {
-    return EIO;
+    goto failure;
   }
 
-  int err = EIO;
   int64_t version = -1;
   get_user_version(db, &version);
   if (version != 0) {
     fprintf(stderr, "Wrong schema version: %lld (expected 0)\n", (long long)version);
-    goto failed;
+    goto failure;
   }
 
-  CHECK(exec_sql(db, "BEGIN TRANSACTION"));
+  if (!exec_sql(db, "BEGIN TRANSACTION")) {
+    goto failure;
+  }
 
-#define SQL_STATEMENT(sql) CHECK(exec_sql(db, #sql));
+#define SQL_STATEMENT(sql) if (!exec_sql(db, #sql)) goto failure;
 #include "sqlfs_schema.h"
 #undef SQL_STATEMENT
 
 #define STR2(s) #s
 #define STR(s) STR2(s)
-  CHECK(exec_sql(db, "PRAGMA user_version = " STR(SQLFS_SCHEMA_VERSION)));
+  if (!exec_sql(db, "PRAGMA user_version = " STR(SQLFS_SCHEMA_VERSION))) {
+    goto failure;
+  }
 #undef STR
 #undef STR2
 
-  create_root_directory(db, umask, uid, gid);
+  if (!create_root_directory(db, umask, uid, gid)) {
+    goto failure;
+  }
 
-  CHECK(exec_sql(db, "COMMIT TRANSACTION"));
+  if (!exec_sql(db, "COMMIT TRANSACTION")) {
+    goto failure;
+  }
 
-  err = 0;
+  err = 0; // Success.
 
-failed:
-  CHECK(sqlite3_close(db) == SQLITE_OK);
+failure:
+  // It's safe to call sqlite3_close on a NULL pointer.
+  // If a transaction is open, it will be rolled back.
+  if (sqlite3_close(db) != SQLITE_OK) {
+    err = EIO;
+  }
   return err;
 }
 
@@ -869,32 +894,36 @@ struct sqlfs *sqlfs_open(
   sqlfs->gid = gid;
   sqlfs->blocksize = 4096;  /* default Linux pagesize */
 
-  if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) goto failed;
+  if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
+    goto failure;
+  }
 
-  if (!set_password(sqlfs->db, password)) goto failed;
+  if (!set_password(sqlfs->db, password)) {
+    goto failure;
+  }
 
   int64_t version = -1;
   if (!get_user_version(sqlfs->db, &version)) {
     fprintf(stderr, "Failed to query database version: %s!\n"
         "This probably means the database is encrypted with a different password.\n",
         sqlite3_errmsg(sqlfs->db));
-    goto failed;
+    goto failure;
   }
 
   if (version != SQLFS_SCHEMA_VERSION) {
     fprintf(stderr, "Wrong schema version number: %lld (expected %d)\n", (long long)version, SQLFS_SCHEMA_VERSION);
-    goto failed;
+    goto failure;
   }
 
   // This must be done after the schema has been created.
   for (int i = 0; i < NUM_STATEMENTS; ++i) {
     CHECK(statements[i].id == i);
-    if (!prepare(sqlfs->db, statements[i].sql, &sqlfs->stmt[i])) goto failed;
+    if (!prepare(sqlfs->db, statements[i].sql, &sqlfs->stmt[i])) goto failure;
   }
 
   return sqlfs;
 
-failed:
+failure:
   sqlfs_close(sqlfs);
   return NULL;
 }
