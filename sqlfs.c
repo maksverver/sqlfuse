@@ -255,11 +255,12 @@ static bool prepare(sqlite3 *db, const char *sql, sqlite3_stmt **stmt) {
   return true;
 }
 
-static void exec_sql(sqlite3 *db, const char *sql) {
+static bool exec_sql(sqlite3 *db, const char *sql) {
   sqlite3_stmt *stmt = NULL;
   CHECK(prepare(db, sql, &stmt));
-  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+  int status = sqlite3_step(stmt);
   sqlite3_finalize(stmt);
+  return status == SQLITE_DONE;
 }
 
 static void sql_begin_transaction(struct sqlfs *sqlfs) {
@@ -814,8 +815,7 @@ static bool set_password(sqlite3 *db, const char *password) {
   // Linux page size. Once the database is created, the cipher_page_size can
   // never be changed, and the same value MUST be set explicitly every time it
   // is opened!
-  exec_sql(db, "PRAGMA cipher_page_size = 4096");
-  return true;
+  return exec_sql(db, "PRAGMA cipher_page_size = 4096");
 }
 
 bool sqlfs_create(const char *filepath, const char *password,
@@ -837,21 +837,21 @@ bool sqlfs_create(const char *filepath, const char *password,
     goto failed;
   }
 
-  exec_sql(db, "BEGIN TRANSACTION");
+  CHECK(exec_sql(db, "BEGIN TRANSACTION"));
 
-#define SQL_STATEMENT(sql) exec_sql(db, #sql);
+#define SQL_STATEMENT(sql) CHECK(exec_sql(db, #sql));
 #include "sqlfs_schema.h"
 #undef SQL_STATEMENT
 
 #define STR2(s) #s
 #define STR(s) STR2(s)
-  exec_sql(db, "PRAGMA user_version = " STR(SQLFS_SCHEMA_VERSION));
+  CHECK(exec_sql(db, "PRAGMA user_version = " STR(SQLFS_SCHEMA_VERSION)));
 #undef STR
 #undef STR2
 
   create_root_directory(db, umask, uid, gid);
 
-  exec_sql(db, "COMMIT TRANSACTION");
+  CHECK(exec_sql(db, "COMMIT TRANSACTION"));
 
   success = true;
 
@@ -923,8 +923,7 @@ bool sqlfs_rekey(struct sqlfs *sqlfs, const char *new_password) {
 }
 
 bool sqlfs_vacuum(struct sqlfs *sqlfs) {
-  exec_sql(sqlfs->db, "VACUUM");
-  return true;
+  return exec_sql(sqlfs->db, "VACUUM");
 }
 
 int sqlfs_get_blocksize(const struct sqlfs *sqlfs) {

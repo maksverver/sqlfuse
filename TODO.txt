@@ -1,8 +1,5 @@
 Milestone 0.9:
-  - sqlfs: make exec_sql() return a bool, and for existing calls, either replace
-    them with CHECK(exec_sql), or propagate the error correctly.
   - rename fsck to 'check'
-  - code cleanup: inline blocks with a single statement?
   - think about a cool name & rebrand everything?
   - Revisit transaction functions (sql_begin_transaction() etc.): they currently
     emulate nested transactions with savepoints. It might be less confusing if they
