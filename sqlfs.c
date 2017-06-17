@@ -925,8 +925,8 @@ int sqlfs_rekey(struct sqlfs *sqlfs, const char *new_password) {
   return status == SQLITE_OK ? 0 : EIO;
 }
 
-bool sqlfs_vacuum(struct sqlfs *sqlfs) {
-  return exec_sql(sqlfs->db, "VACUUM");
+int sqlfs_vacuum(struct sqlfs *sqlfs) {
+  return exec_sql(sqlfs->db, "VACUUM") ? 0 : EIO;
 }
 
 int sqlfs_get_blocksize(const struct sqlfs *sqlfs) {

@@ -402,7 +402,7 @@ static int run_vacuum(int argc, char *argv[]) {
   int status = 1;  // exit failure
   if (sqlfs_purge_all(sqlfs) != 0) {
     fprintf(stderr, "Failed to purge unlinked files/directories.\n");
-  } else if (!sqlfs_vacuum(sqlfs)) {
+  } else if (sqlfs_vacuum(sqlfs) != 0) {
     fprintf(stderr, "Failed to vacuum the database.\n");
   } else {
     printf("Database succesfully vacuumed.\n");

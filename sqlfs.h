@@ -64,8 +64,8 @@ int sqlfs_rekey(struct sqlfs *sqlfs, const char *new_password);
 
 // Vacuums the underlying database to reduce fragmentation and reclaim space.
 //
-// Returns true on success, or false if a database operation failed.
-bool sqlfs_vacuum(struct sqlfs *sqlfs);
+// Returns 0 on success, or EIO if a database operation failed.
+int sqlfs_vacuum(struct sqlfs *sqlfs);
 
 // Returns the current blocksize, which will be used to create new files.
 int sqlfs_get_blocksize(const struct sqlfs *sqlfs);
