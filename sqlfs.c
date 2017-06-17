@@ -917,9 +917,12 @@ void sqlfs_close(struct sqlfs *sqlfs) {
   free(sqlfs);
 }
 
-bool sqlfs_rekey(struct sqlfs *sqlfs, const char *new_password) {
-  return new_password != NULL &&
-      sqlite3_rekey(sqlfs->db, new_password, strlen(new_password)) == SQLITE_OK;
+int sqlfs_rekey(struct sqlfs *sqlfs, const char *new_password) {
+  if (new_password == NULL) {
+    return EINVAL;
+  }
+  int status = sqlite3_rekey(sqlfs->db, new_password, strlen(new_password));
+  return status == SQLITE_OK ? 0 : EIO;
 }
 
 bool sqlfs_vacuum(struct sqlfs *sqlfs) {

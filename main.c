@@ -362,7 +362,7 @@ static int run_rekey(int argc, char *argv[]) {
   if (new_password == NULL) {
     goto finish;
   }
-  if (!sqlfs_rekey(sqlfs, new_password)) {
+  if (sqlfs_rekey(sqlfs, new_password) != 0) {
     fprintf(stderr, "Could not rekey database '%s' (not writable?)\n", database);
     goto finish;
   }
