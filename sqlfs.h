@@ -157,15 +157,17 @@ int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *chi
 void sqlfs_dir_open(struct sqlfs *sqlfs, ino_t ino, const char *start_name);
 
 // Reads the next directory entry, storing its name into *name, its inode
-// number into *ino, and (only!) the file-type bits of its mode into *mode,
-// and returns true.
-//
-// If there are no more entries, this function returns false instead, and the
-// contents of the output arguments is undefined.
+// number into *ino, and (only!) the file-type bits of its mode into *mode, and
+// then returns 0.
 //
 // The buffer pointed to by *name is valid only until the next call to
 // sqlfs_dir_next() or sqlfs_dir_close().
-bool sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *mode);
+//
+// If there are no more entries to return, this function sets *name to NULL,
+// *ino to SQLFS_INO_NONE, and returns 0.
+//
+// Returns 0 on success, or EIO if a database operation failed.
+int sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *mode);
 
 // Closes a directory opened previously by sqlfs_dir_open().
 void sqlfs_dir_close(struct sqlfs *sqlfs);

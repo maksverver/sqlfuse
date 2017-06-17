@@ -1184,7 +1184,7 @@ void sqlfs_dir_open(struct sqlfs *sqlfs, ino_t ino, const char *start_name) {
   sqlfs->dir_stmt = stmt;
 }
 
-bool sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *mode) {
+int sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *mode) {
   sqlite3_stmt *stmt = sqlfs->dir_stmt;
   CHECK(stmt);
   int status = sqlite3_step(stmt);
@@ -1194,12 +1194,16 @@ bool sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *
     *name = *n ? n : "..";
     *ino = sqlite3_column_int64(stmt, COL_READ_DIRENTRIES_ENTRY_INO);
     *mode = sqlite3_column_int64(stmt, COL_READ_DIRENTRIES_ENTRY_TYPE) << 12;
-    return true;
+    return 0;
   }
-  if (status != SQLITE_DONE) {
-    LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+  if (status == SQLITE_DONE) {
+    *name = NULL;
+    *ino = SQLFS_INO_NONE;
+    *mode = 0;
+    return 0;
   }
-  return false;
+  LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+  return EIO;
 }
 
 void sqlfs_dir_close(struct sqlfs *sqlfs) {

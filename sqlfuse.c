@@ -447,7 +447,8 @@ static void sqlfuse_readdir(fuse_req_t req, fuse_ino_t ino,
   for (;;) {
     struct stat st = {0};
     const char *name = NULL;
-    if (!sqlfs_dir_next(sqlfs, &name, &st.st_ino, &st.st_mode)) {
+    // We currently ignore errors, treating them as end-of-directory.
+    if (sqlfs_dir_next(sqlfs, &name, &st.st_ino, &st.st_mode) != 0 || name == NULL) {
       // Reached end of directory listing.
       dir_handle->at_end = true;
       break;
