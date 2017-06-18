@@ -27,6 +27,12 @@
 // guarantees that if a CHECK() failure occurs halfway through an update, the
 // transaction will be rolled back and the database will be left in a consistent
 // state.
+//
+// We use savepoints to allow transactions to be nested. Each call to
+// sql_savepoint() must be paired with a later call to sql_release_savepoint().
+// If an operation failed and the changes made in the transaction should be
+// rolled back, call sql_rollback_to_savepoint() to discard those changes, just
+// before calling sql_release_savepoint().
 
 #include "sqlfs.h"
 
@@ -265,23 +271,22 @@ static bool exec_sql(sqlite3 *db, const char *sql) {
   return status == SQLITE_DONE;
 }
 
-static void sql_begin_transaction(struct sqlfs *sqlfs) {
+static void sql_savepoint(struct sqlfs *sqlfs) {
   sqlite3_stmt * const stmt = sqlfs->stmt[STMT_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
 }
 
-static void sql_commit_transaction(struct sqlfs *sqlfs) {
+static void sql_release_savepoint(struct sqlfs *sqlfs) {
   sqlite3_stmt * const stmt = sqlfs->stmt[STMT_RELEASE_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
 }
 
-static void sql_rollback_transaction(struct sqlfs *sqlfs) {
+static void sql_rollback_to_savepoint(struct sqlfs *sqlfs) {
   sqlite3_stmt * const stmt = sqlfs->stmt[STMT_ROLLBACK_TO_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  sql_commit_transaction(sqlfs);
 }
 
 static bool get_user_version(sqlite3 *db, int64_t *user_version) {
@@ -1056,7 +1061,7 @@ int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
     return EINVAL;
   }
 
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
 
   struct stat dir_stat;
   int err = stat_dir(sqlfs, dir_ino, &dir_stat);
@@ -1085,11 +1090,10 @@ int sqlfs_mkdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
   err = 0;  // Succes
 
 finish:
-  if (err == 0) {
-    sql_commit_transaction(sqlfs);
-  } else {
-    sql_rollback_transaction(sqlfs);
+  if (err != 0) {
+    sql_rollback_to_savepoint(sqlfs);
   }
+  sql_release_savepoint(sqlfs);
   return err;
 }
 
@@ -1115,7 +1119,7 @@ finish:
 //  EISDIR if (dir == false) and the entry does not refer to a file
 //  ENOTEMPTY if (dir == true) and the entry refers to a directory which is not empty
 static int remove_impl(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, bool dir, ino_t *child_ino_out) {
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
   int err = -1;
 
   // Find the entry by its name in the given directory.
@@ -1180,12 +1184,12 @@ static int remove_impl(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, boo
 
   CHECK(err == 0);
   *child_ino_out = child_ino;
-  sql_commit_transaction(sqlfs);
-  return 0;
-
+  goto finish;
 rollback:
   CHECK(err > 0);
-  sql_rollback_transaction(sqlfs);
+  sql_rollback_to_savepoint(sqlfs);
+finish:
+  sql_release_savepoint(sqlfs);
   return err;
 }
 
@@ -1253,7 +1257,7 @@ int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
     return EINVAL;
   }
 
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
 
   struct stat dir_stat;
   int err = stat_dir(sqlfs, dir_ino, &dir_stat);
@@ -1272,11 +1276,10 @@ int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
   }
 
 finish:
-  if (err == 0) {
-    sql_commit_transaction(sqlfs);
-  } else {
-    sql_rollback_transaction(sqlfs);
+  if (err != 0) {
+    sql_rollback_to_savepoint(sqlfs);
   }
+  sql_release_savepoint(sqlfs);
   return err;
 }
 
@@ -1285,7 +1288,7 @@ int sqlfs_unlink(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *ch
 }
 
 int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino) {
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
 
   struct stat stat;
   int err = sqlfs_stat(sqlfs, ino, &stat);
@@ -1316,11 +1319,10 @@ int sqlfs_purge(struct sqlfs *sqlfs, ino_t ino) {
   err = sql_delete_metadata(sqlfs, ino);
 
 finish:
-  if (err == 0) {
-    sql_commit_transaction(sqlfs);
-  } else {
-    sql_rollback_transaction(sqlfs);
+  if (err != 0) {
+    sql_rollback_to_savepoint(sqlfs);
   }
+  sql_release_savepoint(sqlfs);
   return err;
 }
 
@@ -1330,7 +1332,7 @@ int sqlfs_purge_all(struct sqlfs *sqlfs) {
   sqlite3_stmt *stmt = NULL;
   CHECK(prepare(sqlfs->db, "SELECT ino FROM metadata WHERE nlink = 0", &stmt));
   int err = 0;
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
   for (int status; err == 0 && (status = sqlite3_step(stmt)) != SQLITE_DONE; ) {
     if (status != SQLITE_ROW) {
       err = EIO;
@@ -1338,11 +1340,10 @@ int sqlfs_purge_all(struct sqlfs *sqlfs) {
       err = sqlfs_purge(sqlfs, (ino_t)sqlite3_column_int64(stmt, 0));
     }
   }
-  if (err == 0) {
-    sql_commit_transaction(sqlfs);
-  } else {
-    sql_rollback_transaction(sqlfs);
+  if (err != 0) {
+    sql_rollback_to_savepoint(sqlfs);
   }
+  sql_release_savepoint(sqlfs);
   sqlite3_finalize(stmt);
   return err;
 }
@@ -1440,7 +1441,7 @@ int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, u
     return EINVAL;
   }
 
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
 
   int err = sqlfs_stat(sqlfs, ino, attr_out);
   if (err != 0) {
@@ -1493,12 +1494,12 @@ int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, u
   }
 
   CHECK(err == 0);
-  sql_commit_transaction(sqlfs);
-  return 0;
-
+  goto finish;
 failure:
   CHECK(err != 0);
-  sql_rollback_transaction(sqlfs);
+  sql_rollback_to_savepoint(sqlfs);
+finish:
+  sql_release_savepoint(sqlfs);
   return err;
 }
 
@@ -1506,7 +1507,7 @@ int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, char *buf
   CHECK(off >= 0 && off < INT64_MAX);
   CHECK(size < INT64_MAX);
 
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
 
   struct stat attr = {0};
   int err = sqlfs_stat(sqlfs, ino, &attr);
@@ -1530,13 +1531,14 @@ int sqlfs_read(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, char *buf
     }
   }
   *size_read = size_to_read;
-  CHECK(err == 0);
-  sql_commit_transaction(sqlfs);
-  return 0;
 
+  CHECK(err == 0);
+  goto finish;
 failure:
   CHECK(err != 0);
-  sql_rollback_transaction(sqlfs);
+  sql_rollback_to_savepoint(sqlfs);
+finish:
+  sql_release_savepoint(sqlfs);
   return err;
 }
 
@@ -1546,7 +1548,7 @@ int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, const ch
 
   char *temp_block = NULL;
 
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
 
   struct stat attr = {0};
   int err = sqlfs_stat(sqlfs, ino, &attr);
@@ -1663,15 +1665,12 @@ int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, const ch
   }
 
   CHECK(err == 0);
-  sql_commit_transaction(sqlfs);
-  goto cleanup;
-
+  goto finish;
 failure:
   CHECK(err != 0);
-  sql_rollback_transaction(sqlfs);
-  goto cleanup;
-
-cleanup:
+  sql_rollback_to_savepoint(sqlfs);
+finish:
+  sql_release_savepoint(sqlfs);
   free(temp_block);
   return err;
 }
@@ -1686,7 +1685,7 @@ int sqlfs_rename(struct sqlfs *sqlfs, ino_t old_parent_ino, const char *old_name
   }
 
   int err = -1;
-  sql_begin_transaction(sqlfs);
+  sql_savepoint(sqlfs);
 
   struct stat old_parent_attr;
   struct stat new_parent_attr;
@@ -1767,11 +1766,11 @@ int sqlfs_rename(struct sqlfs *sqlfs, ino_t old_parent_ino, const char *old_name
 
 success:
   CHECK(err == 0);
-  sql_commit_transaction(sqlfs);
-  return 0;
-
+  goto finish;
 failure:
   CHECK(err != 0);
-  sql_rollback_transaction(sqlfs);
+  sql_rollback_to_savepoint(sqlfs);
+finish:
+  sql_release_savepoint(sqlfs);
   return err;
 }

@@ -1,29 +1,15 @@
 Milestone 0.9:
+  - create a README with some information and usage notes.
+    (This should contain everything which is currently spread over USAGE,
+     NOTES, and TODO, though pure TODOs can stay in this file.)
+  - fully document the schema definition (wait until the implementation is
+    further along; no point documenting it when it's likely to change)
   - think about a cool name & rebrand everything?
   - Maybe rename `vacuum` to something more intuitive? (Effect: causes the whole
     database to be rewritten, with unused space reclaimed. Maybe `compact` or
     `rewrite` or `reclaim`?)
-  - Revisit transaction functions (sql_begin_transaction() etc.): they currently
-    emulate nested transactions with savepoints. It might be less confusing if they
-    were named after the SQL statements they actually execute. Maybe the functions
-    that use transactions should be restructured as follows:
-
-      sql_savepoint(sqlfs);
-      int err = ...;
-      if (err != 0) {
-        goto failure;
-      }
-    success:
-      CHECK(err == 0);
-      goto finish;
-    failure:
-      CHECK(err != 0);
-      sql_rollback_to_savepoint(sqlfs);
-    finish:
-      sql_release_savepoint(sqlfs);
-      return err;
-
   - clean-up TODO and documentation.
+  - test stuff under "things to test".
 
 Milestone 1.0:
   - implement 'check' command (verify that it works on read only files)
@@ -33,10 +19,16 @@ Milestone 1.0:
   - Make writing of large files more efficient, either by increasing block size
     or disabling full-sync-on-commit (if that's even possible).
 
+Milestone 1.1:
+  - Support for symlinks.
+  - Support for hardlinks.
+
 Maybe later:
   - Consider calling sqlfs_purge_all() in destroy rather than purging each open
     inode individually? (It would have the benefit that sqlfs_purge_all() is
     more efficient because it can use an index to find unlinked entries.)
+  - Transparent compression of file data? Or maybe this can be implemented on a
+    lower level (compressing the database file itself)?
 
 Things to test:
   - some manual smoke-testing: verify that files are actually purged during
@@ -51,7 +43,6 @@ Things to test:
      - unaligned read() (currently entirely untested!)
      - opendir()/readdir()/closedir() with various edge cases
   - test on 32-bit ARM -- check that binary format is compatible!
-  - mtrace() seems buggy in multithreaded environment. Get rid of leak tests?
 
 TBD:
   - what should the uid/gid/mode of the root directory be?
@@ -97,17 +88,6 @@ Decisions to document somewhere:
       sqlite> RAGMA cipher_page_size = 4096;
       sqlite> .schema  # to view the database schema
       sqlite> .dump    # to dump the database schema with contents
-
-Future ideas:
-  - Transparent compression of file data? Or maybe this can be implemented on a
-    lower level (compressing the database file itself)?
-
-General TODO:
-  - create a README with some information and usage notes.
-    (This should contain everything which is currently spread over USAGE,
-     NOTES, and TODO, though pure TODOs can stay in this file.)
-  - fully document the schema definition (wait until the implementation is
-    further along; no point documenting it when it's likely to change)
 
 Things I learned about fuse:
   - direct_io mode is not available in low-level mode. Without it (by default),
