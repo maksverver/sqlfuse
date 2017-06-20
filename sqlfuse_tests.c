@@ -381,8 +381,12 @@ static void test_mknod_unlink() {
   EXPECT_EQ(mknod(path_foo, S_IFREG | 0644, 0), -1);
   EXPECT_EQ(errno, EEXIST);
 
-  // Invalid mode (symlinks not supportedy yet).
-  EXPECT_EQ(mknod(path_foo, S_IFLNK | 0644, 0), -1);
+  // Invalid mode (symlinks not supported yet).
+  EXPECT_EQ(mknod(path_bar, S_IFLNK | 0644, 0), -1);
+  EXPECT_EQ(errno, EINVAL);
+
+  // Invalid mode (FIFO not supported at all).
+  EXPECT_EQ(mknod(path_bar, S_IFIFO | 0644, 0), -1);
   EXPECT_EQ(errno, EINVAL);
 
   EXPECT_EQ(mknod(makepath("foo/bar"), S_IFREG | 0644, 0), -1);
