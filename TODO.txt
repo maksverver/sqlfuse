@@ -1,17 +1,32 @@
-Milestone 0.9:
+Milestone 0.8:
+  - add a flag to override the cipher_page_size.
+  - think about a cool name & rebrand everything?
   - create a README with some information and usage notes.
     (This should contain everything which is currently spread over USAGE,
      NOTES, and TODO, though pure TODOs can stay in this file.)
+  - finalize the schema & cipher_pagesize (?)
   - fully document the schema definition (wait until the implementation is
     further along; no point documenting it when it's likely to change)
-  - think about a cool name & rebrand everything?
   - Maybe rename `vacuum` to something more intuitive? (Effect: causes the whole
     database to be rewritten, with unused space reclaimed. Maybe `compact` or
     `rewrite` or `reclaim`?)
   - clean-up TODO and documentation.
   - test stuff under "things to test".
+  - document build depencies (FUSE 2.6, SQLCipher version X?)
+  - create Arch Linux BUILD file
+
+Milestone 0.9:
+  - add a benchmark test
+      - mix of large/small random/sequential reads/writes
+      - a separate test to create a random filesystem?
+  - use benchmark to decide on optimal block_size and cipher_page_size
+    (note that it doesn't make sense to bump the schema version, since we cannot
+     open the database with the wrong cipher_page_size, so we cannot upgrade
+     automatically anyway.)
 
 Milestone 1.0:
+  - add a license (BSD-style, like SQLcipher? Check github for recommendation.)
+    (would require copyright release!)
   - implement 'check' command (verify that it works on read only files)
     (once implemented, add it to teardown() in sqlfuse_test to verify that each
     test case leaves the filesystem in a consistent state, without dangling
@@ -42,7 +57,6 @@ Things to test:
   - Add unit tests on the sqlfs level:
      - unaligned read() (currently entirely untested!)
      - opendir()/readdir()/closedir() with various edge cases
-  - test on 32-bit ARM -- check that binary format is compatible!
 
 TBD:
   - what should the uid/gid/mode of the root directory be?
