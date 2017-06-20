@@ -87,10 +87,10 @@ enum statements {
 // column indices (for use with sqlite3_column()) as COL_XXX_ZZZ. Note that
 // query parameters are indexed starting from 1, while projection columns are
 // indexed from 0 instead!
-static const struct Statement {
+static const struct statement {
   int id;
   const char *sql;
-} statements[NUM_STATEMENTS + 1] = {
+} statements[NUM_STATEMENTS] = {
   { STMT_SAVEPOINT,
     "SAVEPOINT tx" },
 
@@ -218,8 +218,6 @@ static const struct Statement {
 #define PARAM_DELETE_FILEDATA_INO      1
 #define PARAM_DELETE_FILEDATA_FROM_IDX 2
     "DELETE FROM filedata WHERE ino = ? AND idx >= ?" },
-
-  {-1, NULL}
 };
 
 struct sqlfs {
