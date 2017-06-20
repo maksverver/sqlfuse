@@ -543,5 +543,4 @@ const struct fuse_lowlevel_ops sqlfuse_ops = {
   .forget_multi = NULL,
   // Same as POSIX lock: deferred to kernel for local implementation.
   .flock = NULL,
-  .fallocate = NULL,  // fallocate not supported. Maybe later?
 };
