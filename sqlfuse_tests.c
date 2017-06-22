@@ -1041,6 +1041,8 @@ static void test_purge() {
   EXPECT_EQ(read(fd_b, &dummy, 1), 1);
   EXPECT_EQ(dummy, 'b');
 
+  // When logging is enabled, this will print "failed to purge ino=2 (err=2)!"
+  // because we circumvented sqlfuse by calling sqlfs_purge() directly.
   close(fd_a);
   close(fd_b);
 
@@ -1071,6 +1073,8 @@ static void test_purge_all() {
   EXPECT_EQ(read(fd_b, &dummy, 1), 1);
   EXPECT_EQ(dummy, 'b');
 
+  // When logging is enabled, this will print "failed to purge ino=2 (err=2)!"
+  // because we circumvented sqlfuse by calling sqlfs_purge() directly.
   close(fd_a);
   close(fd_b);
 
