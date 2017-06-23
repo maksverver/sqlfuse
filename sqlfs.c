@@ -333,17 +333,16 @@ static void sql_rollback_to_savepoint(struct sqlfs *sqlfs) {
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
 }
 
-static bool get_user_version(sqlite3 *db, int64_t *user_version) {
-  bool success = false;
+static int64_t get_user_version(sqlite3 *db) {
+  int64_t result = -1;
   sqlite3_stmt *stmt = NULL;
   CHECK(prepare(db, "PRAGMA user_version", &stmt));
   if (sqlite3_step(stmt) == SQLITE_ROW) {
-    success = true;
-    *user_version = sqlite3_column_int64(stmt, 0);
+    result = sqlite3_column_int64(stmt, 0);
     CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   }
   sqlite3_finalize(stmt);
-  return success;
+  return result;
 }
 
 static struct timespec current_timespec() {
@@ -923,8 +922,7 @@ int sqlfs_create(const char *filepath, const char *password,
     goto failure;
   }
 
-  int64_t version = -1;
-  get_user_version(db, &version);
+  int64_t version = get_user_version(db);
   if (version != 0) {
     fprintf(stderr, "Wrong schema version: %lld (expected 0)\n", (long long)version);
     goto failure;
@@ -985,12 +983,32 @@ struct sqlfs *sqlfs_open(
     goto failure;
   }
 
+  // First, get the database schema version. Since this is the first query we
+  // do, this is likely to fail if the database is locked or encrypted in an
+  // incompatable way, so we'll execute the query manually (instead of simply
+  // calling get_user_version()) and print a helpful error message for some of
+  // the most common failure reasons.
   int64_t version = -1;
-  if (!get_user_version(sqlfs->db, &version)) {
-    fprintf(stderr, "Failed to query database version: %s!\n"
-        "This probably means the database is encrypted with a different password.\n",
-        sqlite3_errmsg(sqlfs->db));
-    goto failure;
+  {
+    sqlite3_stmt *stmt = NULL;
+    CHECK(prepare(sqlfs->db, "PRAGMA user_version", &stmt));
+    int status = sqlite3_step(stmt);
+    if (status == SQLITE_ROW) {
+      version = sqlite3_column_int64(stmt, 0);
+      CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+    } else {
+      fprintf(stderr, "Failed to query database version: %s!\n", sqlite3_errmsg(sqlfs->db));
+      if (status == SQLITE_BUSY || status == SQLITE_LOCKED) {
+        fprintf(stderr, "Database may be in use by another process.\n");
+      }
+      if (status == SQLITE_NOTADB) {
+        fprintf(stderr, "Database may be encrypted with a different password.\n");
+      }
+    }
+    sqlite3_finalize(stmt);
+    if (status != SQLITE_ROW) {
+      goto failure;
+    }
   }
 
   if (!enable_wal(sqlfs->db)) {
