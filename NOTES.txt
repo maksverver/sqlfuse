@@ -2,8 +2,9 @@ To access the database manually, do:
 
   sqlcipher /path/to/db
   sqlite> PRAGMA key="YOUR-PASSWORD-HERE";
-  sqlite> PRAGMA cipher_page_size=4096;
+  sqlite> PRAGMA cipher_page_size=1024;  # if different from the default
   sqlite> .schema
+  sqlite> .dump
   etc.
 
 WARNING: sqlite command history is stored in $HOME/.sqlite_history, including

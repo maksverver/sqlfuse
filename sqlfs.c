@@ -900,11 +900,13 @@ static bool set_password(sqlite3 *db, const char *password) {
 
   // cipher_page_size must be set immediately after setting the password.
   // Large values make sequential reads/writes more efficient, but random
-  // access less efficient. The default is 1024. We chose 4096 to match the
-  // Linux page size. Once the database is created, the cipher_page_size can
-  // never be changed, and the same value MUST be set explicitly every time it
-  // is opened!
-  return exec_sql(db, "PRAGMA cipher_page_size = 4096");
+  // access less efficient. Once the database is created, the cipher_page_size
+  // can never be changed, and the same value MUST be set explicitly every time
+  // it is opened!
+  //
+  // The default value is 1024. We use the same value, but set it explicitly, in
+  // case the default changes between different SQLCipher versions/builds.
+  return exec_sql(db, "PRAGMA cipher_page_size = 1024");
 }
 
 int sqlfs_create(const char *filepath, const char *password,
