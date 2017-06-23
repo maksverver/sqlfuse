@@ -53,7 +53,8 @@ SQL_STATEMENT(
     data BLOB NOT NULL,
     PRIMARY KEY (ino, idx)
   )
-  // TODO: should this be declared WITHOUT ROWID for efficiency?
+  // This table is not declared WITHOUT ROWID, because rows are typically large.
+  // See: https://sqlite.org/withoutrowid.html#when_to_use_without_rowid
 )
 
 SQL_STATEMENT(
@@ -69,6 +70,5 @@ SQL_STATEMENT(
     entry_ino INTEGER NOT NULL,    // references metadata(ino)
     entry_type INTEGER NOT NULL,   // file type bits (mode >> 12)
     PRIMARY KEY (dir_ino, entry_name)
-  )
-  // TODO: should this be declared WITHOUT ROWID for efficiency?
+  ) WITHOUT ROWID
 )
