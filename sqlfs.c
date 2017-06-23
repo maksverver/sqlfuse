@@ -52,6 +52,10 @@
 
 #include "logging.h"
 
+// Log a message, prefixed with a file name and line number.
+// Used for debug-logging throughout this file.
+#define DLOG(fmt, ...) LOG("[%s:%d] " fmt, __FILE__, __LINE__, __VA_ARGS__)
+
 #define NANOS_PER_SECOND 1000000000
 
 enum statements {
@@ -278,7 +282,7 @@ static bool exec_sql(sqlite3 *db, const char *sql) {
   if (status == SQLITE_DONE) {
     return true;
   }
-  LOG("[%s:%d] %s(sql=[%s]) status=%d\n", __FILE__, __LINE__, __func__, sql, status);
+  DLOG("%s(sql=[%s]) status=%d\n", __func__, sql, status);
   return false;
 }
 
@@ -296,17 +300,15 @@ static bool exec_pragma(sqlite3 *db, const char *sql, const char *expected) {
   }
   bool success = false;
   if (sqlite3_step(stmt) != SQLITE_ROW) {
-    LOG("[%s:%d] %s(sql=[%s]) failed (PRAGMA not supported by this version?)\n",
-        __FILE__, __LINE__, __func__, sql);
+    DLOG("%s(sql=[%s]) failed (PRAGMA not supported by this version?)\n", __func__, sql);
   } else {
     const char *received = (const char*)sqlite3_column_text(stmt, 0);
     if (!strings_equal(expected, received)) {
-      LOG("[%s:%d] %s(sql=[%s]) expected [%s] != received [%s]\n",
-          __FILE__, __LINE__, __func__, sql,
+      DLOG("%s(sql=[%s]) expected [%s] != received [%s]\n", __func__, sql,
           expected != NULL ? expected : "<null>",
           received != NULL ? received : "<null>");
     } else if (sqlite3_step(stmt) != SQLITE_DONE) {
-      LOG("[%s:%d] %s(sql=[%s]) failed\n", __FILE__, __LINE__, __func__, sql);
+      DLOG("%s(sql=[%s]) failed\n", __func__, sql);
     } else {
       success = true;
     }
@@ -456,7 +458,7 @@ static int finish_stat_query(sqlite3_stmt *stmt, struct stat *stat, int default_
     CHECK(sqlite3_step(stmt) == SQLITE_DONE);
     err = 0;
   } else {
-    LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+    DLOG("%s() status=%d\n", __func__, status);
     err = EIO;
   }
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
@@ -502,7 +504,7 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
 
   int status = sqlite3_step(stmt);
   if (status != SQLITE_DONE) {
-    LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+    DLOG("%s() status=%d\n", __func__, status);
   } else {
     stat->st_ino = sqlite3_last_insert_rowid(sqlfs->db);
     CHECK(stat->st_ino > 0);
@@ -539,7 +541,7 @@ static int sql_update_metadata(struct sqlfs *sqlfs, const struct stat *stat) {
   int err = 0;
   int status = sqlite3_step(stmt);
   if (status != SQLITE_DONE) {
-    LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+    DLOG("%s() status=%d\n", __func__, status);
     err = EIO;
   } else if (sqlite3_changes(sqlfs->db) == 0) {
     err = ENOENT;
@@ -577,7 +579,7 @@ static int sql_update_nlink(struct sqlfs *sqlfs, ino_t ino, int64_t add_links) {
   int err = -1;
   int status = sqlite3_step(stmt);
   if (status != SQLITE_DONE) {
-    LOG("[%s:%d] %s(ino=%lld, add_links=%lld) status=%d\n", __FILE__, __LINE__,
+    DLOG("%s(ino=%lld, add_links=%lld) status=%d\n",
         __func__, (long long) ino, (long long) add_links, status);
     err = EIO;
     goto finish;
@@ -628,8 +630,8 @@ static int sql_lookup(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_name
   } else if (status == SQLITE_DONE) {
     err = ENOENT;
   } else {
-    LOG("[%s:%d] %s(dir_ino=%lld, name=[%s]) status=%d\n",
-        __FILE__, __LINE__, __func__, (long long)dir_ino, entry_name, status);
+    DLOG("%s(dir_ino=%lld, name=[%s]) status=%d\n",
+        __func__, (long long)dir_ino, entry_name, status);
     err = EIO;
   }
   CHECK(sqlite3_reset(stmt) == SQLITE_OK);
@@ -661,8 +663,8 @@ static int sql_insert_direntries(struct sqlfs *sqlfs, ino_t dir_ino, const char 
   case SQLITE_CONSTRAINT:
     return EEXIST;
   default:
-    LOG("[%s:%d] %s(dir_ino=%lld, entry_name=%s, entry_ino=%lld, entry_mode=0%o) status=%d\n",
-        __FILE__, __LINE__, __func__, (long long)dir_ino, entry_name, (long long)entry_ino, entry_mode, status);
+    DLOG("%s(dir_ino=%lld, entry_name=%s, entry_ino=%lld, entry_mode=0%o) status=%d\n",
+        __func__, (long long)dir_ino, entry_name, (long long)entry_ino, entry_mode, status);
     return EIO;
   }
 }
@@ -794,14 +796,14 @@ static int sql_read_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t blocksize, 
     int64_t chunk_size = int64_min(offset + size - chunk_offset, blocksize);
     int status = sqlite3_step(stmt);
     if (status != SQLITE_ROW) {
-      LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+      DLOG("%s() status=%d\n", __func__, status);
       err = EIO;
       goto finish;
     }
     int64_t block_idx = sqlite3_column_int64(stmt, COL_READ_FILEDATA_IDX);
     if (block_idx != i) {
-      LOG("[%s:%d] %s() ino=%lld incorrect block index! expected: %lld received: %lld",
-          __FILE__, __LINE__, __func__, (long long)ino, (long long)i, (long long)block_idx);
+      DLOG("%s() ino=%lld incorrect block index! expected: %lld received: %lld",
+          __func__, (long long)ino, (long long)i, (long long)block_idx);
       err = EIO;
       goto finish;
     }
@@ -809,9 +811,8 @@ static int sql_read_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t blocksize, 
     CHECK(data_ptr != NULL);
     int64_t data_size = sqlite3_column_bytes(stmt, COL_READ_FILEDATA_DATA);
     if (data_size < chunk_size) {
-      LOG("[%s:%d] %s() ino=%lld idx=%lld incorrect block size! expected: %lld received: %lld",
-          __FILE__, __LINE__, __func__, (long long)ino, (long long)i,
-          (long long)chunk_size, (long long)data_size);
+      DLOG("%s() ino=%lld idx=%lld incorrect block size! expected: %lld received: %lld",
+          __func__, (long long)ino, (long long)i, (long long)chunk_size, (long long)data_size);
       err = EIO;
       goto finish;
     }
@@ -1054,7 +1055,7 @@ void sqlfs_close(struct sqlfs *sqlfs) {
     // read-only mode later (which is not possible if the database is in WAL
     // mode.)
     if (sqlfs->wal_enabled && !disable_wal(sqlfs->db)) {
-      LOG("[%s:%d] %s() Failed to disable WAL!\n", __FILE__, __LINE__, __func__);
+      DLOG("%s() Failed to disable WAL!\n", __func__);
     }
     CHECK(sqlite3_close(sqlfs->db) == SQLITE_OK);
   }
@@ -1350,7 +1351,7 @@ int sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *m
     *mode = 0;
     return 0;
   }
-  LOG("[%s:%d] %s() status=%d\n", __FILE__, __LINE__, __func__, status);
+  DLOG("%s() status=%d\n", __func__, status);
   return EIO;
 }
 
@@ -1478,8 +1479,8 @@ static int resize_filedata(struct sqlfs *sqlfs, ino_t ino, off_t old_size, off_t
 
   char *block = calloc(blksize, 1);
   if (block == NULL) {
-    LOG("[%s:%d] %s(dir_ino=%lld): unable to allocate %lld bytes!\n",
-        __FILE__, __LINE__, __func__, (long long)ino, (long long)blksize);
+    DLOG("%s(dir_ino=%lld): unable to allocate %lld bytes!\n",
+        __func__, (long long)ino, (long long)blksize);
     // Return EIO because there doesn't seem to be a more suitable errno.
     return EIO;
   }
@@ -1552,7 +1553,7 @@ int sqlfs_set_attr(struct sqlfs *sqlfs, ino_t ino, const struct stat *attr_in, u
 
   if (to_set != (to_set & SQLFS_SET_ATTR_ALL)) {
     // Unknown flags passed in `to_set`.
-    LOG("[%s:%d] %s() to_set=%u\n", __FILE__, __LINE__, __func__, to_set);
+    DLOG("%s() to_set=%u\n", __func__, to_set);
     return EINVAL;
   }
 
@@ -1727,8 +1728,8 @@ int sqlfs_write(struct sqlfs *sqlfs, ino_t ino, off_t off, size_t size, const ch
         // temp_block, the first one will be the full `blksize` in length.
         temp_block = malloc(chunk_size);
         if (temp_block == NULL) {
-          LOG("[%s:%d] %s(dir_ino=%lld): unable to allocate %lld bytes!\n",
-              __FILE__, __LINE__, __func__, (long long)ino, (long long)blksize);
+          DLOG("%s(dir_ino=%lld): unable to allocate %lld bytes!\n",
+              __func__, (long long)ino, (long long)blksize);
           // Return EIO because there doesn't seem to be a more suitable errno.
           err = EIO;
           goto failure;
