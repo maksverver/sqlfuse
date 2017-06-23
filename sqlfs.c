@@ -228,6 +228,7 @@ struct sqlfs {
   int blocksize;
   sqlite3_stmt *stmt[NUM_STATEMENTS];
   sqlite3_stmt *dir_stmt;
+  bool wal_enabled;
 };
 
 enum name_kind { NAME_EMPTY, NAME_DOT, NAME_DOTDOT, NAME_REGULAR };
@@ -251,6 +252,13 @@ static int64_t int64_max(int64_t x, int64_t y) {
   return x > y ? x : y;
 }
 
+// Compares two character pointers for equality. Either argument may be NULL.
+// The arguments are equal if they are both NULL, or they are both non-NULL and
+// they have the same character contents.
+static bool strings_equal(const char *s, const char *t) {
+  return s == t || (s != NULL && t != NULL && strcmp(s, t) == 0);
+}
+
 static bool prepare(sqlite3 *db, const char *sql, sqlite3_stmt **stmt) {
   if (sqlite3_prepare_v2(db, sql, -1, stmt, NULL) != SQLITE_OK) {
     fprintf(stderr, "Failed to prepare statement [%s]: %s\n", sql, sqlite3_errmsg(db));
@@ -259,6 +267,7 @@ static bool prepare(sqlite3 *db, const char *sql, sqlite3_stmt **stmt) {
   return true;
 }
 
+// Executes an SQL statement that returns no values.
 static bool exec_sql(sqlite3 *db, const char *sql) {
   sqlite3_stmt *stmt = NULL;
   if (!prepare(db, sql, &stmt)) {
@@ -266,7 +275,44 @@ static bool exec_sql(sqlite3 *db, const char *sql) {
   }
   int status = sqlite3_step(stmt);
   sqlite3_finalize(stmt);
-  return status == SQLITE_DONE;
+  if (status == SQLITE_DONE) {
+    return true;
+  }
+  LOG("[%s:%d] %s(sql=[%s]) status=%d\n", __FILE__, __LINE__, __func__, sql, status);
+  return false;
+}
+
+// Executes a PRAGMA sql statement which is expected to return a value.
+//
+// (For PRAGMA statements that don't return a value, use exec_sql() instead.)
+//
+// Returns true if the statement succeeded and returned exactly one row where
+// the first column has a string value equal to `expected` (which may be NULL,
+// in which case the received value should also be NULL).
+static bool exec_pragma(sqlite3 *db, const char *sql, const char *expected) {
+  sqlite3_stmt *stmt = NULL;
+  if (!prepare(db, sql, &stmt)) {
+    return false;
+  }
+  bool success = false;
+  if (sqlite3_step(stmt) != SQLITE_ROW) {
+    LOG("[%s:%d] %s(sql=[%s]) failed (PRAGMA not supported by this version?)\n",
+        __FILE__, __LINE__, __func__, sql);
+  } else {
+    const char *received = (const char*)sqlite3_column_text(stmt, 0);
+    if (!strings_equal(expected, received)) {
+      LOG("[%s:%d] %s(sql=[%s]) expected [%s] != received [%s]\n",
+          __FILE__, __LINE__, __func__, sql,
+          expected != NULL ? expected : "<null>",
+          received != NULL ? received : "<null>");
+    } else if (sqlite3_step(stmt) != SQLITE_DONE) {
+      LOG("[%s:%d] %s(sql=[%s]) failed\n", __FILE__, __LINE__, __func__, sql);
+    } else {
+      success = true;
+    }
+  }
+  sqlite3_finalize(stmt);
+  return success;
 }
 
 static void sql_savepoint(struct sqlfs *sqlfs) {
@@ -815,6 +861,35 @@ static int sql_delete_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t from_idx)
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
+// Enable WAL journaling mode for higher write performance.
+// More information: https://www.sqlite.org/wal.html
+static bool enable_wal(sqlite3 *db) {
+  return
+      // Exclusive locking has two effects:
+      //  1. Prevents others from accessing the same filesystem.
+      //  2. Allows WAL journaling without using shared memory files.
+      exec_pragma(db, "PRAGMA locking_mode = exclusive", "exclusive") &&
+      // Lowest level of synchronicity that we can get away with without losing
+      // consistency. (Note that we lose durability, but that's probably okay.)
+      exec_sql(db, "PRAGMA synchronous = normal") &&
+      // Verify result of previous statement.
+      exec_pragma(db, "PRAGMA synchronous", "1" /*normal*/) &&
+      // Enable write-ahead logging journaling mode.
+      exec_pragma(db, "PRAGMA journal_mode = wal", "wal");
+}
+
+// Reset journaling mode to allow the database to be opened in read-only mode
+// (assuming it was cleanly closed and doesn't need recovery at start-up).
+static bool disable_wal(sqlite3 *db) {
+  return
+    exec_sql(db, "PRAGMA synchronous = full") &&
+    exec_pragma(db, "PRAGMA synchronous", "2" /*full*/) &&
+    exec_pragma(db, "PRAGMA journal_mode = delete", "delete");
+}
+
+// Sets the encryption parameters (password and cipher page size) of the
+// database. This must be done immediately after opening the database.
+// If password == NULL, this function does nothing but returns true.
 static bool set_password(sqlite3 *db, const char *password) {
   if (password == NULL) {
     return true;
@@ -841,8 +916,10 @@ int sqlfs_create(const char *filepath, const char *password,
   if (sqlite3_open_v2(filepath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
     goto failure;
   }
-
   if (!set_password(db, password)) {
+    goto failure;
+  }
+  if (!enable_wal(db)) {
     goto failure;
   }
 
@@ -877,6 +954,10 @@ int sqlfs_create(const char *filepath, const char *password,
     goto failure;
   }
 
+  if (!disable_wal(db)) {
+    goto failure;
+  }
+
   err = 0; // Success.
 
 failure:
@@ -900,7 +981,6 @@ struct sqlfs *sqlfs_open(
   if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
     goto failure;
   }
-
   if (!set_password(sqlfs->db, password)) {
     goto failure;
   }
@@ -912,6 +992,11 @@ struct sqlfs *sqlfs_open(
         sqlite3_errmsg(sqlfs->db));
     goto failure;
   }
+
+  if (!enable_wal(sqlfs->db)) {
+    goto failure;
+  }
+  sqlfs->wal_enabled = true;
 
   if (version != SQLFS_SCHEMA_VERSION) {
     fprintf(stderr, "Wrong schema version number: %lld (expected %d)\n", (long long)version, SQLFS_SCHEMA_VERSION);
@@ -943,7 +1028,14 @@ void sqlfs_close(struct sqlfs *sqlfs) {
       CHECK(sqlite3_finalize(sqlfs->stmt[i]) == SQLITE_OK);
     }
   }
+
   if (sqlfs->db) {
+    // Reset the journaling mode. This allows the database file to be opened in
+    // read-only mode later (which is not possible if the database is in WAL
+    // mode.)
+    if (sqlfs->wal_enabled && !disable_wal(sqlfs->db)) {
+      LOG("[%s:%d] %s() Failed to disable WAL!\n", __FILE__, __LINE__, __func__);
+    }
     CHECK(sqlite3_close(sqlfs->db) == SQLITE_OK);
   }
   free(sqlfs);
