@@ -1063,6 +1063,11 @@ int sqlfs_rekey(struct sqlfs *sqlfs, const char *new_password) {
   if (new_password == NULL) {
     return EINVAL;
   }
+
+  // Note: rekeying the database may corrupt the database if any other process
+  // has the database file opened. sqlite3_rekey() does NOT check this! We rely
+  // on an exclusive lock being obtained in sqlfs_open() to guarantee that no
+  // other process is using the database while we rekey.
   int status = sqlite3_rekey(sqlfs->db, new_password, strlen(new_password));
   return status == SQLITE_OK ? 0 : EIO;
 }
