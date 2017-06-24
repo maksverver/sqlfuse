@@ -1,0 +1,42 @@
+How to build SQLCipher from source.
+
+https://www.zetetic.net/sqlcipher/
+
+Instructions here are useful:
+
+https://github.com/sqlcipher/sqlcipher/blob/master/README.md
+
+% git clone https://github.com/sqlcipher/sqlcipher.git sqlcipher-src
+% cd sqlcipher-src
+% git checkout v3.4.1   # latest version of SQLCipher. Use `git tag` if unsure.
+% cd ..
+
+% mkdir sqlcipher-build
+% cd sqlcipher-build
+
+Configuration options:
+
+   --prefix=...            installation directory
+   --enable-tempstore=yes  is necessary for SQLCipher
+   CFLAGS:
+      -DSQLITE_HAS_CODEC   is necessary for SQLCipher
+      -O2                  recommended
+      -march=native        optional; optimize for native architecture
+
+% prefix=~/sqlcipher  # or wherever you want to install
+% ../sqlcipher-src/configure \
+    CFLAGS="-O2 -march=native -DSQLITE_HAS_CODEC" LDFLAGS="-lcrypto" \
+    --enable-tempstore=yes --prefix="${prefix}"
+% make
+% make test  # optional
+% make install
+
+To build, you need to add the pkconfig directory to your PKG_CONFIG_PATH.
+To build and run, you need to add the lib directory to your LD_LIBRARY_PATH.
+(Replace ~/sqlcipher with the installation prefix used before.)
+
+% export PKG_CONFIG_PATH=~/sqlcipher/lib/pkgconfig:${PKG_CONFIG_PATH}
+% export LD_LIBRARY_PATH=~/sqlcipher/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+You probably want to add these to e.g. ~/.bash_profile to automatically apply
+them on login.
