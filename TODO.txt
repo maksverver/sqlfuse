@@ -1,28 +1,28 @@
 Milestone 0.8:
-  - add a flag to override the cipher_page_size.
+  - Implement fsync() and fsyncdir() by calling:
+      sqlite3_wal_checkpoint_v2(db, NULL, SQLITE_CHECKPOINT_FULL, NULL, NULL);
   - think about a cool name & rebrand everything?
-  - create a README with some information and usage notes.
-    (This should contain everything which is currently spread over USAGE,
-     NOTES, and TODO, though pure TODOs can stay in this file.)
-  - finalize the schema & cipher_pagesize (?)
-  - fully document the schema definition (wait until the implementation is
-    further along; no point documenting it when it's likely to change)
   - Maybe rename `vacuum` to something more intuitive? (Effect: causes the whole
     database to be rewritten, with unused space reclaimed. Maybe `compact` or
     `rewrite` or `reclaim`?)
-  - clean-up TODO and documentation.
-  - test stuff under "things to test".
-  - document build depencies (FUSE 2.6, SQLCipher version X?)
+  - TBD: what should the uid/gid/mode of the root directory be?
+  - things to test:
+    - open read-only database file (read operations should still succeed,
+    - create a shell test that does an integration test of all commands
+      (including setting passwords?)
+      write operations should fail gracefully, without crashing)
+    - sqlfs tests with encryption (no setup/teardown)
+    - sqlfuse: parallel reading from two directories / one directory opened twice
+      (this only makes sense to test with very large directories otherwise the
+       entire directory is probably read into one buffer?)
+    - Add unit tests on the sqlfs level:
+       - unaligned read() (currently entirely untested!)
+       - opendir()/readdir()/closedir() with various edge cases
+  - create a README with some information and usage notes.
+    (This should contain everything which is currently spread over USAGE,
+     NOTES, and TODO, though pure TODOs can stay in this file.)
+     - document build depencies (FUSE 2.6, SQLCipher version X?)
   - create Arch Linux BUILD file
-
-Milestone 0.9:
-  - add a benchmark test
-      - mix of large/small random/sequential reads/writes
-      - a separate test to create a random filesystem?
-  - use benchmark to decide on optimal block_size and cipher_page_size
-    (note that it doesn't make sense to bump the schema version, since we cannot
-     open the database with the wrong cipher_page_size, so we cannot upgrade
-     automatically anyway.)
 
 Milestone 1.0:
   - add a license (BSD-style, like SQLcipher? Check github for recommendation.)
@@ -31,42 +31,31 @@ Milestone 1.0:
     (once implemented, add it to teardown() in sqlfuse_test to verify that each
     test case leaves the filesystem in a consistent state, without dangling
     pointers and so on).
-  - Make writing of large files more efficient, either by increasing block size
-    or disabling full-sync-on-commit (if that's even possible).
 
 Milestone 1.1:
   - Support for symlinks.
   - Support for hardlinks.
 
 Maybe later:
+  - Add a flag to override the cipher_page_size? (Would apply to all commands.)
+  - Add a benchmark test
+      - Read/write perfomance test (random/sequential reads/writes in a file)
+      - A separate test which generates a "random" filesystem?
+  - Use benchmark to decide on optimal block_size and cipher_page_size
+    (it doesn't make sense to bump the schema version, since we cannot open the
+     database with the wrong cipher_page_size, so we cannot auto-upgrade.)
   - Consider calling sqlfs_purge_all() in destroy rather than purging each open
-    inode individually? (It would have the benefit that sqlfs_purge_all() is
+    inode individually. (It would have the benefit that sqlfs_purge_all() is
     more efficient because it can use an index to find unlinked entries.)
   - Transparent compression of file data? Or maybe this can be implemented on a
     lower level (compressing the database file itself)?
-
-Things to test:
-  - some manual smoke-testing: verify that files are actually purged during
-    normal operation (auto-create a bunch of files and delete them?)
-  - open read-only database file (read operations should still succeed,
-    write operations should fail gracefully, without crashing)
-  - sqlfs tests with encryption (no setup/teardown)
-  - sqlfuse: parallel reading from two directories / one directory opened twice
-    (this only makes sense to test with very large directories otherwise the
-     entire directory is probably read into one buffer?)
-  - Add unit tests on the sqlfs level:
-     - unaligned read() (currently entirely untested!)
-     - opendir()/readdir()/closedir() with various edge cases
-
-TBD:
-  - what should the uid/gid/mode of the root directory be?
-  - should we apply the umask manually, or does the kernel handle this?
-    (test it with mkdir once that works!)
+  - Consider running `PRAGMA optimize` before/after `VACUUM`.
 
 Decisions to document somewhere:
   - No multithreading support. It complicates everything, is not immediately
     necessary, and would not work well with SQLite (since SQLite serializes
-    transactions by default).
+    transactions by default, and we even open the database in exclusive mode,
+    which prevents concurrent access).
   - ctime and atime are not stored. (They're not very useful.)
   - Each file has an associated block size (which can vary between files, though
     it's 4 KiB by default). File data is stored as a series of blocks, indexed
@@ -83,25 +72,20 @@ Decisions to document somewhere:
     continuation token (and "SELECT ... WHERE name >= next_name", instead of
     "WHERE name > last_name") to avoid having to copy strings in
     sqlfuse_readdir() to remember the last entry name.
-  - All write operations commit to the database, so there is no need to flush()
-    or sync() anything.
+  - We don't support the FUSE flush() function because all writes commit to the
+    database anyway (they are flushed implicitly, though changes are not durable
+    until fsync() is called).
   - Permission bits sticky/setuid/setgid (mask 07000) are currently not
     supported. Maybe later! (Careful: we should clear setuid/setgid bits when
     the owner/group of a file is changed.)
-  - No tests for setuid()/setgid() because that (probaby?) requires root
-    privileges.
-  - No implementation for open/release, because we implement stateless file I/O.
-  - Permission checking is deferred to libfuse. This has not been tested.
-    It's probably not safe to share the filesystem with others (i.e. using the
-    -o allow_others mount option).
-  - No separate command to inspect/dump the database. The sqlcipher CLI can be
-    used as follows:
-
-      % sqlcipher example.db
-      sqlite> PRAGMA KEY 'password'  # Careful! Stored in ~/.sqlite_history!
-      sqlite> RAGMA cipher_page_size = 4096;
-      sqlite> .schema  # to view the database schema
-      sqlite> .dump    # to dump the database schema with contents
+  - No tests for setuid()/setgid() because that (probably?) requires root
+    privileges to test.
+  - No implementation for FUSE open()/release(), because we implement stateless
+    file I/O instead.
+  - Permission checking is deferred to libfuse. It might not be safe to share
+    the filesystem with others (i.e. using the -o allow_others mount option).
+  - There is no separate command to inspect/dump the database. Just use the
+    sqlcipher CLI for debugging.
 
 Things I learned about fuse:
   - direct_io mode is not available in low-level mode. Without it (by default),
