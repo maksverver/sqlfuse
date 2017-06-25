@@ -347,6 +347,7 @@ static int run_rekey(int argc, char *argv[]) {
   int result = 1;  // exit failure
   struct sqlfs *sqlfs = NULL;
   char *old_password = NULL;
+  char *old_password_copy = NULL;
   char *new_password = NULL;
 
   old_password = get_password();
@@ -358,13 +359,26 @@ static int run_rekey(int argc, char *argv[]) {
     fprintf(stderr, "Failed to open database '%s'.\n", database);
     goto finish;
   }
+
+  // Since the pointer returned by getpass() is only valid until the next call
+  // to getpass(), we need to copy old_password here.
+  old_password_copy = strdup(old_password);
+  CHECK(old_password_copy != NULL);
+  clear_password(old_password);
+  old_password = old_password_copy;
+
   new_password = get_new_password();
   if (new_password == NULL) {
     goto finish;
   }
-  if (sqlfs_rekey(sqlfs, new_password) != 0) {
-    fprintf(stderr, "Could not rekey database '%s' (not writable?)\n", database);
-    goto finish;
+  if (strcmp(old_password, new_password) == 0) {
+    printf("Password unchanged.\n");
+  } else {
+    if (sqlfs_rekey(sqlfs, new_password) != 0) {
+      fprintf(stderr, "Could not rekey database '%s' (not writable?)\n", database);
+      goto finish;
+    }
+    printf("Password changed.\n");
   }
   result = 0;  // exit successfully
 
@@ -374,6 +388,7 @@ finish:
   }
   clear_password(old_password);
   clear_password(new_password);
+  free(old_password_copy);
   return result;
 }
 
