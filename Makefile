@@ -19,7 +19,9 @@ INTMAP_TESTS_OBJS=$(COMMON_OBJS) test_common.o intmap_tests.o
 SQLFUSE_TESTS_OBJS=$(COMMON_OBJS) test_common.o sqlfuse_tests.o
 TESTS=intmap_tests sqlfuse_tests
 
-all: sqlfuse
+bin: sqlfuse
+
+all: bin tests
 
 test: run_unit_tests
 
@@ -50,4 +52,4 @@ clean:
 distclean: clean
 	rm -f sqlfuse intmap_tests sqlfuse_tests
 
-.PHONY: all test run_unit_tests run_leak_tests clean distclean
+.PHONY: bin all test tests run_unit_tests run_leak_tests clean distclean
