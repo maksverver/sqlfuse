@@ -1,9 +1,5 @@
 Milestone 0.8:
   - think about a cool name & rebrand everything?
-  - Maybe rename `vacuum` to something more intuitive? (Effect: causes the whole
-    database to be rewritten, with unused space reclaimed. Maybe `compact` or
-    `rewrite` or `reclaim`?)
-  - TBD: what should the uid/gid/mode of the root directory be?
   - things to test:
     - open read-only database file (read operations should still succeed,
     - create a shell test that does an integration test of all commands
@@ -35,6 +31,7 @@ Milestone 1.1:
   - Support for hardlinks.
 
 Maybe later:
+  - Generate a man-page.
   - Add a flag to override the cipher_page_size? (Would apply to all commands.)
   - Add a benchmark test
       - Read/write perfomance test (random/sequential reads/writes in a file)
@@ -47,7 +44,7 @@ Maybe later:
     more efficient because it can use an index to find unlinked entries.)
   - Transparent compression of file data? Or maybe this can be implemented on a
     lower level (compressing the database file itself)?
-  - Consider running `PRAGMA optimize` before/after `VACUUM`.
+  - Consider running `PRAGMA optimize` before/after `VACUUM` during compaction.
 
 Decisions to document somewhere:
   - No multithreading support. It complicates everything, is not immediately

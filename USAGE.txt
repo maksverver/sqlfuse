@@ -48,10 +48,15 @@ sqlfuse rekey <database>
   disable encryption.) Will prompt for the old and new password.
 
 
-sqlfuse vacuum [-n|--no_password] <database>
+sqlfuse compact [-n|--no_password] <database>
 
-  Optimizes the database file (reducing file size and internal fragmentation)
-  by purging deleted files/directories and vacuuming the database.
+  Rewrites the database file to minimize disk space used. This may reduce
+  internal fragmentation as well.
+
+  Note that rewriting the database requires a lot of temporary space (up to
+  twice its original size), and since the old and new files will be entirely
+  different, this affects the efficiency of incremental backups. Consequently,
+  this command should be used sparingly.
 
 
 sqlfuse check [-n|--no_password] <database>

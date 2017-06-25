@@ -248,7 +248,7 @@ static int run_help() {
       "    sqlfuse create [-n|--no_password] <database>\n"
       "    sqlfuse mount [-n|--no_password] <database> <mountpoint> [FUSE options]\n"
       "    sqlfuse rekey <database>\n"
-      "    sqlfuse vacuum [-n|--no_password] <database>\n"
+      "    sqlfuse compact [-n|--no_password] <database>\n"
       "    sqlfuse check [-n|--no_password] <database>\n", stdout);
   return 0;
 }
@@ -409,7 +409,7 @@ static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[]) {
   return sqlfs_open(database, password, getumask(), geteuid(), getegid());
 }
 
-static int run_vacuum(int argc, char *argv[]) {
+static int run_compact(int argc, char *argv[]) {
   struct sqlfs *sqlfs = open_sqlfs_from_args(argc, argv);
   if (sqlfs == NULL) {
     return 1;
@@ -420,7 +420,7 @@ static int run_vacuum(int argc, char *argv[]) {
   } else if (sqlfs_vacuum(sqlfs) != 0) {
     fprintf(stderr, "Failed to vacuum the database.\n");
   } else {
-    printf("Database succesfully vacuumed.\n");
+    printf("Database compaction complete.\n");
     status = 0;  // exit successfully
   }
   sqlfs_close(sqlfs);
@@ -453,8 +453,8 @@ int main(int argc, char *argv[]) {
     return run_rekey(argc, argv);
   }
 
-  if (strcmp(command, "vacuum") == 0) {
-    return run_vacuum(argc, argv);
+  if (strcmp(command, "compact") == 0) {
+    return run_compact(argc, argv);
   }
 
   if (strcmp(command, "check") == 0) {
