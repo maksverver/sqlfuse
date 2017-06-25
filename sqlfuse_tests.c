@@ -1144,6 +1144,27 @@ static void test_unlinked_directory() {
   teardown();
 }
 
+static void test_fsync() {
+  setup();
+
+  const char *path_file = makepath("file");
+
+  int fd = open(path_file, O_CREAT | O_WRONLY);
+  EXPECT(fd >= 0);
+  EXPECT_EQ(write(fd, "foo", 3), 3);
+  // We can't really verify that the underlying file has been synced, so we
+  // only check that the value returned by fsync() indicates success.
+  EXPECT_EQ(fsync(fd), 0);
+  EXPECT_EQ(write(fd, "bar", 3), 3);
+  EXPECT_EQ(close(fd), 0);
+
+  verify_contents(path_file, "foobar", 6);
+
+  teardown();
+
+  // Possible TODO: also exercise fsyncdir()?
+}
+
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
@@ -1164,6 +1185,7 @@ static const struct test_case tests[] = {
   TEST(purge_all),
   TEST(unlinked_file),
   TEST(unlinked_directory),
+  TEST(fsync),
 #undef TEST
   {NULL, NULL}};
 

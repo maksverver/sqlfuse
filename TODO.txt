@@ -1,6 +1,4 @@
 Milestone 0.8:
-  - Implement fsync() and fsyncdir() by calling:
-      sqlite3_wal_checkpoint_v2(db, NULL, SQLITE_CHECKPOINT_FULL, NULL, NULL);
   - think about a cool name & rebrand everything?
   - Maybe rename `vacuum` to something more intuitive? (Effect: causes the whole
     database to be rewritten, with unused space reclaimed. Maybe `compact` or

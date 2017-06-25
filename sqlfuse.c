@@ -494,6 +494,24 @@ static void sqlfuse_releasedir(fuse_req_t req, fuse_ino_t ino,
   REPLY_ERR(req, 0);
 }
 
+static void sqlfuse_fsync(fuse_req_t req, fuse_ino_t ino, int datasync,
+    struct fuse_file_info *fi) {
+  TRACE_BEGIN(TRACE_UINT(ino), TRACE_INT(datasync));
+  (void)fi;  // unused
+  // We can only sync the entire filesystem, not individual files.
+  int err = sqlfs_sync(req_sqlfs(req));
+  REPLY_ERR(req, err);
+}
+
+static void sqlfuse_fsyncdir(fuse_req_t req, fuse_ino_t ino, int datasync,
+    struct fuse_file_info *fi) {
+  TRACE_BEGIN(TRACE_UINT(ino), TRACE_INT(datasync));
+  (void)fi;  // unused
+  // We can only sync the entire filesystem, not individual directories.
+  int err = sqlfs_sync(req_sqlfs(req));
+  REPLY_ERR(req, err);
+}
+
 const struct fuse_lowlevel_ops sqlfuse_ops = {
   .init = sqlfuse_init,
   .destroy = sqlfuse_destroy,
@@ -514,11 +532,11 @@ const struct fuse_lowlevel_ops sqlfuse_ops = {
   .write = sqlfuse_write,
   .flush = NULL,  // flush not supported
   .release = NULL,  // we implement stateless file I/O
-  .fsync = NULL,  // fsync not supported
+  .fsync = sqlfuse_fsync,
   .opendir = sqlfuse_opendir,
   .readdir = sqlfuse_readdir,
   .releasedir = sqlfuse_releasedir,
-  .fsyncdir = NULL,  // fsyncdir not supported
+  .fsyncdir = sqlfuse_fsyncdir,
   .statfs = NULL,  // statfs not supported. Maybe later?
   .setxattr = NULL,  // extended attributes not supported
   .getxattr = NULL,  // extended attributes not supported

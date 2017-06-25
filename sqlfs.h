@@ -311,4 +311,15 @@ int sqlfs_rename(struct sqlfs *sqlfs,
     ino_t old_parent_ino, const char *old_name,
     ino_t new_parent_ino, const char *new_name, ino_t *unlinked_ino);
 
+// Syncs filesystem to disk.
+//
+// If this function returns succesfully, then all changes made up to this point
+// will be preserved in case of an unexpected system failure (for example, a
+// sudden power loss). It's not necessary to call this to maintain consistency.
+//
+// Returns:
+//  0 on success
+//  EIO if a database operation failed
+int sqlfs_sync(struct sqlfs *sqlfs);
+
 #endif /* ndef SQLFS_H_INCLUDED */

@@ -1890,3 +1890,11 @@ finish:
   sql_release_savepoint(sqlfs);
   return err;
 }
+
+int sqlfs_sync(struct sqlfs *sqlfs) {
+  // We want any pending changes to be synced to disk permanently. From the
+  // SQLite documentation: "[SQLITE_CHECKPOINT_FULL] checkpoints all frames in
+  // the log file and syncs the database file".
+  int status = sqlite3_wal_checkpoint_v2(sqlfs->db, NULL, SQLITE_CHECKPOINT_FULL, NULL, NULL);
+  return status == SQLITE_OK ? 0 : EIO;
+}
