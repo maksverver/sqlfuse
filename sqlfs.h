@@ -13,6 +13,11 @@
 #define SQLFS_INO_NONE ((ino_t) 0)
 #define SQLFS_INO_ROOT ((ino_t) 1)
 
+enum sqlfs_open_mode {
+  SQLFS_OPEN_MODE_READONLY,
+  SQLFS_OPEN_MODE_READWRITE,
+};
+
 // Version of the database schema. (This value is mostly useful for debugging.)
 #define SQLFS_SCHEMA_VERSION 1
 
@@ -39,12 +44,13 @@ int sqlfs_create(
 // filesystem state, which must be released by calling sqlfs_close() later.
 //
 //  filepath: path to the database file.
+//  mode: whether to open the file for reading and writing, or reading only.
 //  password: password to use. May be NULL to disable encryption.
 //  umask: umask to use for this session
 //  uid: user id to use for this session
 //  gid: group id to use for this session
 struct sqlfs *sqlfs_open(
-    const char *filepath, const char *password,
+    const char *filepath, enum sqlfs_open_mode mode, const char *password,
     mode_t umask, uid_t uid, gid_t gid);
 
 // Releases the filesystem state. Afterwards, the state should not be used.

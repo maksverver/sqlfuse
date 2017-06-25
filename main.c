@@ -122,6 +122,7 @@ struct mount_args {
   bool help;
   bool version;
   bool no_password;
+  bool readonly;
   bool debug;
   const char *filepath;
 };
@@ -131,6 +132,7 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
     .help = false,
     .version = false,
     .no_password = false,
+    .readonly = false,
     .debug = false,
     .filepath = NULL };
   const int n = *argc;
@@ -140,6 +142,8 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
     char *arg = argv[i];
     if (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0) {
       args.no_password = true;
+    } else if (strcmp(arg, "-r") == 0 || strcmp(arg, "--readonly") == 0) {
+      args.readonly = true;
     } else if (arg[0] != '-' && args.filepath == NULL) {
       args.filepath = arg;
     } else {
@@ -293,6 +297,7 @@ static int run_mount(int argc, char *argv[]) {
           "\n"
           "Supported options:\n"
           "    -n   --no_password    don't prompt for password (disables encryption)\n"
+          "    -r   --readonly       open database in read-only mode\n"
           "\n",
           stdout);
     }
@@ -315,7 +320,8 @@ static int run_mount(int argc, char *argv[]) {
     }
   }
 
-  struct sqlfs *sqlfs = sqlfs_open(args.filepath, password, getumask(), geteuid(), getegid());
+  enum sqlfs_open_mode open_mode = args.readonly ? SQLFS_OPEN_MODE_READONLY : SQLFS_OPEN_MODE_READWRITE;
+  struct sqlfs *sqlfs = sqlfs_open(args.filepath, open_mode, password, getumask(), geteuid(), getegid());
   clear_password(password);
   password = NULL;
   if (!sqlfs) {
@@ -354,7 +360,7 @@ static int run_rekey(int argc, char *argv[]) {
   if (old_password == NULL) {
     goto finish;
   }
-  sqlfs = sqlfs_open(database, old_password, getumask(), geteuid(), getegid());
+  sqlfs = sqlfs_open(database, SQLFS_OPEN_MODE_READWRITE, old_password, getumask(), geteuid(), getegid());
   if (sqlfs == NULL) {
     fprintf(stderr, "Failed to open database '%s'.\n", database);
     goto finish;
@@ -392,7 +398,7 @@ finish:
   return result;
 }
 
-static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[]) {
+static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[], enum sqlfs_open_mode open_mode) {
   bool no_password = delete_arg_if_equal(1, "-n", &argc, argv) ||
     delete_arg_if_equal(1, "--no_password", &argc, argv);
   const char *database = get_database_argument(argc, argv, true /* should_exist */);
@@ -406,11 +412,11 @@ static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[]) {
       return NULL;
     }
   }
-  return sqlfs_open(database, password, getumask(), geteuid(), getegid());
+  return sqlfs_open(database, open_mode, password, getumask(), geteuid(), getegid());
 }
 
 static int run_compact(int argc, char *argv[]) {
-  struct sqlfs *sqlfs = open_sqlfs_from_args(argc, argv);
+  struct sqlfs *sqlfs = open_sqlfs_from_args(argc, argv, SQLFS_OPEN_MODE_READWRITE);
   if (sqlfs == NULL) {
     return 1;
   }
@@ -428,7 +434,7 @@ static int run_compact(int argc, char *argv[]) {
 }
 
 static int run_check(int argc, char *argv[]) {
-  struct sqlfs *sqlfs = open_sqlfs_from_args(argc, argv);
+  struct sqlfs *sqlfs = open_sqlfs_from_args(argc, argv, SQLFS_OPEN_MODE_READONLY);
   if (sqlfs == NULL) {
     return 1;
   }

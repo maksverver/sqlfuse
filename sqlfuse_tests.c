@@ -146,12 +146,12 @@ static void *fuse_thread_func(void *arg) {
 }
 
 static void setup() {
-  mode_t umask = 022;
+  mode_t umask = 0022;
   uid_t uid = geteuid();
   gid_t gid = getegid();
   const char *password = NULL;
   CHECK(sqlfs_create(database, password, umask, uid, gid) == 0);
-  sqlfs = sqlfs_open(database, password, umask, uid, gid);
+  sqlfs = sqlfs_open(database, SQLFS_OPEN_MODE_READWRITE, password, umask, uid, gid);
   CHECK(sqlfs);
 
   lookups = intmap_create();

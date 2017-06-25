@@ -27,9 +27,10 @@ sqlfuse create [-n|--no_password] <database>
   Prompts for a new password, unless -n is specified.
 
 
-sqlfuse mount [-n|--no_password] <database> <mountpoint> [FUSE options]
+sqlfuse mount [-n|--no_password] [-r|--readonly] <database> <mountpoint> [FUSE options]
 
   -n: Mount an unencrypted database without a password.
+  -r: Open the database in read-only mode.
 
   Promps for a password, unless -n is specified.
 

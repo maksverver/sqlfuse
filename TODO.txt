@@ -1,4 +1,8 @@
 Milestone 0.8:
+  - Fix readonly support:
+    - add a proper unit test
+    - return EACCESS/EPERM (which one?) instead of EIO on write operations
+    - don't allow opening file in write mode
   - think about a cool name & rebrand everything?
   - things to test:
     - open read-only database file (read operations should still succeed,

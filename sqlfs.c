@@ -861,14 +861,17 @@ static int sql_delete_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t from_idx)
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
+// Enable exclusive locking mode on the database. This has two effects:
+//  1. Prevents others from accessing the same filesystem.
+//  2. Allows WAL journaling without using shared memory files.
+static bool enable_exclusive(sqlite3 *db) {
+  return exec_pragma(db, "PRAGMA locking_mode = exclusive", "exclusive");
+}
+
 // Enable WAL journaling mode for higher write performance.
 // More information: https://www.sqlite.org/wal.html
 static bool enable_wal(sqlite3 *db) {
   return
-      // Exclusive locking has two effects:
-      //  1. Prevents others from accessing the same filesystem.
-      //  2. Allows WAL journaling without using shared memory files.
-      exec_pragma(db, "PRAGMA locking_mode = exclusive", "exclusive") &&
       // Lowest level of synchronicity that we can get away with without losing
       // consistency. (Note that we lose durability, but that's probably okay.)
       exec_sql(db, "PRAGMA synchronous = normal") &&
@@ -921,7 +924,7 @@ int sqlfs_create(const char *filepath, const char *password,
   if (!set_password(db, password)) {
     goto failure;
   }
-  if (!enable_wal(db)) {
+  if (!enable_exclusive(db) || !enable_wal(db)) {
     goto failure;
   }
 
@@ -971,15 +974,22 @@ failure:
 }
 
 struct sqlfs *sqlfs_open(
-    const char *filepath, const char *password,
+    const char *filepath, enum sqlfs_open_mode mode, const char *password,
     mode_t umask, uid_t uid, gid_t gid) {
+
+  if (mode != SQLFS_OPEN_MODE_READONLY && mode != SQLFS_OPEN_MODE_READWRITE) {
+    DLOG("%s(filepath=[%s], mode=%d) invalid mode\n", __func__, filepath, mode);
+    return NULL;
+  }
+
   struct sqlfs *sqlfs = calloc(1, sizeof(struct sqlfs));
   sqlfs->umask = umask;
   sqlfs->uid = uid;
   sqlfs->gid = gid;
   sqlfs->blocksize = 4096;  /* default Linux pagesize */
 
-  if (sqlite3_open_v2(filepath, &sqlfs->db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
+  int open_flags = mode == SQLFS_OPEN_MODE_READONLY ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
+  if (sqlite3_open_v2(filepath, &sqlfs->db, open_flags, NULL) != SQLITE_OK) {
     goto failure;
   }
   if (!set_password(sqlfs->db, password)) {
@@ -1013,11 +1023,16 @@ struct sqlfs *sqlfs_open(
       goto failure;
     }
   }
-
-  if (!enable_wal(sqlfs->db)) {
+  if (!enable_exclusive(sqlfs->db)) {
     goto failure;
   }
-  sqlfs->wal_enabled = true;
+  if (mode == SQLFS_OPEN_MODE_READWRITE) {
+    if (!enable_wal(sqlfs->db)) {
+      fprintf(stderr, "Failed to open database in writable mode. Verify that you have write permission on both the database file and its containing directory, or open the database in read-only mode instead.\n");
+      goto failure;
+    }
+    sqlfs->wal_enabled = true;
+  }
 
   if (version != SQLFS_SCHEMA_VERSION) {
     fprintf(stderr, "Wrong schema version number: %lld (expected %d)\n", (long long)version, SQLFS_SCHEMA_VERSION);
