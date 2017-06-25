@@ -320,19 +320,19 @@ static bool exec_pragma(sqlite3 *db, const char *sql, const char *expected) {
 static void sql_savepoint(struct sqlfs *sqlfs) {
   sqlite3_stmt * const stmt = sqlfs->stmt[STMT_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
 }
 
 static void sql_release_savepoint(struct sqlfs *sqlfs) {
   sqlite3_stmt * const stmt = sqlfs->stmt[STMT_RELEASE_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
 }
 
 static void sql_rollback_to_savepoint(struct sqlfs *sqlfs) {
   sqlite3_stmt * const stmt = sqlfs->stmt[STMT_ROLLBACK_TO_SAVEPOINT];
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
 }
 
 static int64_t get_user_version(sqlite3 *db) {
@@ -461,8 +461,8 @@ static int finish_stat_query(sqlite3_stmt *stmt, struct stat *stat, int default_
     DLOG("%s() status=%d\n", __func__, status);
     err = EIO;
   }
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   CHECK(err >= 0);
   return err;
 }
@@ -509,8 +509,8 @@ static int sql_insert_metadata(struct sqlfs *sqlfs, mode_t mode, nlink_t nlink, 
     stat->st_ino = sqlite3_last_insert_rowid(sqlfs->db);
     CHECK(stat->st_ino > 0);
   }
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return stat->st_ino > 0 ? 0 : EIO;
 }
 
@@ -546,8 +546,8 @@ static int sql_update_metadata(struct sqlfs *sqlfs, const struct stat *stat) {
   } else if (sqlite3_changes(sqlfs->db) == 0) {
     err = ENOENT;
   }
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return err;
 }
 
@@ -559,8 +559,8 @@ static int sql_delete_metadata(struct sqlfs *sqlfs, ino_t ino) {
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_DELETE_METADATA];
   CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_METADATA_INO, ino) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
@@ -592,8 +592,8 @@ static int sql_update_nlink(struct sqlfs *sqlfs, ino_t ino, int64_t add_links) {
   CHECK(changes == 1);
   err = 0;
 finish:
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   CHECK(err >= 0);
   return err;
 }
@@ -634,8 +634,8 @@ static int sql_lookup(struct sqlfs *sqlfs, ino_t dir_ino, const char *entry_name
         __func__, (long long)dir_ino, entry_name, status);
     err = EIO;
   }
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   CHECK(err >= 0);
   return err;
 }
@@ -655,8 +655,8 @@ static int sql_insert_direntries(struct sqlfs *sqlfs, ino_t dir_ino, const char 
   CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_DIRENTRIES_ENTRY_INO, entry_ino) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, PARAM_INSERT_DIRENTRIES_ENTRY_TYPE, entry_mode >> 12) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   switch (status) {
   case SQLITE_DONE:
     return 0;
@@ -679,8 +679,8 @@ static int64_t sql_count_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
   CHECK(sqlite3_step(stmt) == SQLITE_ROW);
   const int64_t result = sqlite3_column_int64(stmt, COL_COUNT_DIRENTRIES_COUNT);
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return result;
 }
 
@@ -696,8 +696,8 @@ static int sql_delete_direntry(struct sqlfs *sqlfs, ino_t dir_ino, const char *e
   CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_DIRENTRIES_BY_NAME_DIR_INO, dir_ino) == SQLITE_OK);
   CHECK(sqlite3_bind_text(stmt, PARAM_DELETE_DIRENTRIES_BY_NAME_ENTRY_NAME, entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
@@ -715,8 +715,8 @@ static int sql_reparent_directory(struct sqlfs *sqlfs, ino_t child_ino, ino_t ne
   CHECK(sqlite3_bind_int64(stmt, PARAM_REPARENT_DIRECTORY_NEW_PARENT_INO, new_parent_ino) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, PARAM_REPARENT_DIRECTORY_CHILD_INO, child_ino) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return status == SQLITE_DONE && sqlite3_changes(sqlfs->db) == 1 ? 0 : EIO;
 }
 
@@ -732,8 +732,8 @@ static int sql_delete_direntries(struct sqlfs *sqlfs, ino_t dir_ino) {
   sqlite3_stmt *stmt = sqlfs->stmt[STMT_DELETE_DIRENTRIES];
   CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_DIRENTRIES_DIR_INO, dir_ino) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
@@ -757,8 +757,8 @@ static int sql_rename(struct sqlfs *sqlfs,
   CHECK(sqlite3_bind_int64(stmt, PARAM_RENAME_OLD_DIR_INO, old_dir_ino) == SQLITE_OK);
   CHECK(sqlite3_bind_text(stmt, PARAM_RENAME_OLD_ENTRY_NAME, old_entry_name, -1, SQLITE_STATIC) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return status == SQLITE_DONE && sqlite3_changes(sqlfs->db) == 1 ? 0 : EIO;
 }
 
@@ -826,8 +826,8 @@ static int sql_read_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t blocksize, 
   CHECK(sqlite3_step(stmt) == SQLITE_DONE);
 
 finish:
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return err;
 }
 
@@ -840,8 +840,8 @@ static int sql_update_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t block_idx
   CHECK(sqlite3_bind_int64(stmt, PARAM_UPDATE_FILEDATA_IDX, block_idx) == SQLITE_OK);
   CHECK(sqlite3_bind_blob64(stmt, PARAM_UPDATE_FILEDATA_DATA, block_data, block_size, SQLITE_STATIC) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
@@ -856,8 +856,8 @@ static int sql_delete_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t from_idx)
   CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_FILEDATA_INO, ino) == SQLITE_OK);
   CHECK(sqlite3_bind_int64(stmt, PARAM_DELETE_FILEDATA_FROM_IDX, from_idx) == SQLITE_OK);
   int status = sqlite3_step(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   return status == SQLITE_DONE ? 0 : EIO;
 }
 
@@ -1358,8 +1358,8 @@ int sqlfs_dir_next(struct sqlfs *sqlfs, const char **name, ino_t *ino, mode_t *m
 void sqlfs_dir_close(struct sqlfs *sqlfs) {
   sqlite3_stmt *stmt = sqlfs->dir_stmt;
   CHECK(stmt);
-  CHECK(sqlite3_reset(stmt) == SQLITE_OK);
-  CHECK(sqlite3_clear_bindings(stmt) == SQLITE_OK);
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
   sqlfs->dir_stmt = NULL;
 }
 
