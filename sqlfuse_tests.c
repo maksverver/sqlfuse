@@ -737,7 +737,7 @@ static void test_truncate() {
   memset(contents, 0, 6000);
   verify_contents(path, contents, 5000);
 
-  memset(contents, 'a', 5000);
+  memset(contents, 'a', 5000); //-V512 (buffer underflow)
   update_contents(path, contents, 5000);
 
   EXPECT_EQ(truncate(path, 2500), 0);
@@ -974,9 +974,9 @@ static void test_rename() {
     }, 4);
 
   // Test renaming entry to itself. Should be no-op if it exists.
-  EXPECT_EQ(rename(path_c_file, path_c_file), 0);
-  EXPECT_EQ(rename(path_c_dir, path_c_dir), 0);
-  EXPECT_EQ(rename(path_c_file2, path_c_file2), -1);
+  EXPECT_EQ(rename(path_c_file, path_c_file), 0);     //-V549 (arguments equal)
+  EXPECT_EQ(rename(path_c_dir, path_c_dir), 0);       //-V549 (arguments equal)
+  EXPECT_EQ(rename(path_c_file2, path_c_file2), -1);  //-V549 (arguments equal)
   EXPECT_EQ(errno, ENOENT);
 
   // Renaming file within the same directory succeeds.
