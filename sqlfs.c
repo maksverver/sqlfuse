@@ -983,6 +983,7 @@ struct sqlfs *sqlfs_open(
   }
 
   struct sqlfs *sqlfs = calloc(1, sizeof(struct sqlfs));
+  CHECK(sqlfs);
   sqlfs->umask = umask;
   sqlfs->uid = uid;
   sqlfs->gid = gid;

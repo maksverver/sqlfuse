@@ -70,6 +70,7 @@ static void del(struct intmap *intmap, int64_t key) {
 
 struct intmap *intmap_create() {
   struct intmap *intmap = calloc(1, sizeof(struct intmap));
+  CHECK(intmap);
   CHECK(sqlite3_open(":memory:", &intmap->db) == SQLITE_OK);
   CHECK(sqlite3_exec(intmap->db, sql_create, NULL, NULL, NULL) == SQLITE_OK);
   for (int i = 0; i < NUM_STATEMENTS; ++i) {
