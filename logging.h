@@ -18,7 +18,8 @@
     } \
   } while (false)
 
-void check_fail(const char *file, int line, const char *func, const char *expr);
+void check_fail(const char *file, int line, const char *func, const char *expr)
+	__attribute__((noreturn));
 
 extern bool logging_enabled;
 
