@@ -34,6 +34,16 @@ run_unit_tests: tests
 run_leak_tests: tests
 	./run_leak_tests.sh $(TESTS)
 
+PVS-Studio-tasks.txt: *.[hc]
+	# Runs PVS Studio static source code analysis.
+	# This requires all the tools invoked below to be installed.
+	# Source files will be modified and some temporary files will be
+	# generated, so be careful when checking in changes!
+	how-to-use-pvs-studio-free -c 2 *.[hc]
+	pvs-studio-analyzer trace -- make clean all
+	pvs-studio-analyzer analyze -o PVS-Studio.log
+	plog-converter -t tasklist PVS-Studio.log >PVS-Studio-tasks.txt
+
 sqlfs.o: sqlfs.c sqlfs.h sqlfs_schema.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
