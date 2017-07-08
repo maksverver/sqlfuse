@@ -34,12 +34,15 @@ run_unit_tests: tests
 run_leak_tests: tests
 	./run_leak_tests.sh $(TESTS)
 
+run_static_analysis: PVS-Studio-tasks.txt
+	cat PVS-Studio-tasks.txt
+
 PVS-Studio-tasks.txt: *.[hc]
 	# Runs PVS Studio static source code analysis.
 	# This requires all the tools invoked below to be installed.
 	# Source files will be modified and some temporary files will be
 	# generated, so be careful when checking in changes!
-	how-to-use-pvs-studio-free -c 2 *.[hc]
+	how-to-use-pvs-studio-free -c 2 *.c
 	pvs-studio-analyzer trace -- make clean all
 	pvs-studio-analyzer analyze -o PVS-Studio.log
 	plog-converter -t tasklist PVS-Studio.log >PVS-Studio-tasks.txt
@@ -62,4 +65,4 @@ clean:
 distclean: clean
 	rm -f sqlfuse intmap_tests sqlfuse_tests
 
-.PHONY: bin all test tests run_unit_tests run_leak_tests clean distclean
+.PHONY: bin all test tests run_unit_tests run_leak_tests run_static_analysis clean distclean
