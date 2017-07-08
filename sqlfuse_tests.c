@@ -631,7 +631,6 @@ static void verify_contents(const char *path, const char *expected_data, int exp
   if (expected_size != attr.st_size) {
     return;
   }
-  char *data = malloc(expected_size + 1);
   int fd = open(path, O_RDONLY);
   if (fd < 0) {
     perror(path);
@@ -639,6 +638,8 @@ static void verify_contents(const char *path, const char *expected_data, int exp
     return;
   }
   // Read 1 extra byte to detect EOF.
+  char *data = malloc(expected_size + 1);
+  CHECK(data);
   ssize_t nread = read(fd, data, expected_size + 1);
   EXPECT_EQ(nread, expected_size);
   if (nread == expected_size) {
