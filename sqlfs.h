@@ -19,6 +19,11 @@ enum sqlfs_open_mode {
 };
 
 // Version of the database schema. (This value is mostly useful for debugging.)
+//
+// Whenever the schema of the database is changed:
+//  - Add upgrade logic to sqlfs_open(), if possible.
+//  - Increment the schema version number here.
+//  - Update the version number in sqlfuse.h.
 #define SQLFS_SCHEMA_VERSION 1
 
 // The state for a single filesystem.

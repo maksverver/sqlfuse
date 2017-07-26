@@ -241,8 +241,8 @@ static bool delete_arg_if_equal(int index, const char *value, int *argc, char *a
 }
 
 static void print_version() {
-  printf("sqlfuse version %d.%02d (database version %d)\n",
-      SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFS_SCHEMA_VERSION);
+  printf("sqlfuse version %d.%d.%d (database version %d)\n",
+      SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFUSE_VERSION_PATCH, SQLFS_SCHEMA_VERSION);
 }
 
 static int run_help() {

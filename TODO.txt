@@ -1,4 +1,4 @@
-Milestone 0.8:
+Milestone 0.1.0:
   - Fix readonly support:
     - add a proper unit test
     - return EACCESS/EPERM (which one?) instead of EIO on write operations
@@ -22,7 +22,7 @@ Milestone 0.8:
      - document build depencies (FUSE 2.6, SQLCipher version X?)
   - create Arch Linux BUILD file
 
-Milestone 1.0:
+Milestone 1.0.0:
   - add a license (BSD-style, like SQLcipher? Check github for recommendation.)
     (would require copyright release!)
   - implement 'check' command (verify that it works on read only files)
@@ -30,7 +30,7 @@ Milestone 1.0:
     test case leaves the filesystem in a consistent state, without dangling
     pointers and so on).
 
-Milestone 1.1:
+Milestone 1.1.0:
   - Support for symlinks.
   - Support for hardlinks.
 
