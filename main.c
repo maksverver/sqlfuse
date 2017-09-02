@@ -314,6 +314,11 @@ static int run_mount(int argc, char *argv[]) {
     return 0;
   }
 
+  if (args.filepath == NULL) {
+    fprintf(stderr, "Missing database filename.\n");
+    return 1;
+  }
+
   if (!validate_database_path(args.filepath, true)) {
     return 1;
   }
