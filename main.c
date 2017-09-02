@@ -192,22 +192,49 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
 struct args {
   bool no_password;
   char *plaintext_password;
+  char *new_plaintext_password;
+};
+
+enum args {
+  ARG_NO_PASSWORD = 1,
+  ARG_PLAINTEXT_PASSWORD = 2,
+  ARG_NEW_PLAINTEXT_PASSWORD = 4
 };
 
 // Parses and removes recognized options from the given argument list.
-static bool parse_args(int *argc, char *argv[], struct args *args) {
+//
+// supported_args is a bitmask of arguments to be recognized.
+static bool parse_args(int *argc, char *argv[], int supported_args, struct args *args) {
   int j = 1;
   bool success = true;
   bool no_more_options = false;
+  int set = 0;
   for (int i = 1; i < *argc; ++i) {
     char *arg = argv[i];
     if (*arg == '-' && !no_more_options) {
+      int recognized = 0;
       if (strcmp(arg, "--") == 0) {
         no_more_options = true;
-      } else if (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0) {
+      } else if ((supported_args & ARG_NO_PASSWORD) &&
+          (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0)) {
         args->no_password = true;
-      } else if (starts_with(arg, "--plaintext_password=")) {
+        recognized = ARG_NO_PASSWORD;
+      } else if ((supported_args & ARG_PLAINTEXT_PASSWORD) &&
+            starts_with(arg, "--plaintext_password=")) {
         args->plaintext_password = strchr(arg, '=') + 1;
+        recognized = ARG_PLAINTEXT_PASSWORD;
+      } else if ((supported_args & ARG_NEW_PLAINTEXT_PASSWORD) &&
+            starts_with(arg, "--new_plaintext_password=")) {
+        args->new_plaintext_password = strchr(arg, '=') + 1;
+        recognized = ARG_NEW_PLAINTEXT_PASSWORD;
+      }
+      if (recognized) {
+        if (set & recognized) {
+          fprintf(stderr, "Option argument specified more than once: %s\n", arg);
+          success = false;
+        } else {
+          set |= recognized;
+        }
       } else {
         fprintf(stderr, "Unrecognized option argument: %s\n", arg);
         success = false;
@@ -300,8 +327,8 @@ static int run_help() {
 }
 
 static int run_create(int argc, char *argv[]) {
-  struct args args = { .no_password = false, .plaintext_password = NULL };
-  if (!parse_args(&argc, argv, &args)) {
+  struct args args = {0};
+  if (!parse_args(&argc, argv, ARG_NO_PASSWORD | ARG_PLAINTEXT_PASSWORD, &args)) {
     return 1;
   }
   const char *database = get_database_argument(argc, argv, false /* should_exist */);
@@ -394,6 +421,10 @@ static int run_mount(int argc, char *argv[]) {
 }
 
 static int run_rekey(int argc, char *argv[]) {
+  struct args args = {0};
+  if (!parse_args(&argc, argv, ARG_PLAINTEXT_PASSWORD | ARG_NEW_PLAINTEXT_PASSWORD, &args)) {
+    return 1;
+  }
   const char *database = get_database_argument(argc, argv, true /* must_exist */);
   if (database == NULL) {
     return 1;
@@ -405,7 +436,7 @@ static int run_rekey(int argc, char *argv[]) {
   char *old_password_copy = NULL;
   char *new_password = NULL;
 
-  old_password = get_password();
+  old_password = args.plaintext_password ? args.plaintext_password : get_password();
   if (old_password == NULL) {
     goto finish;
   }
@@ -422,7 +453,7 @@ static int run_rekey(int argc, char *argv[]) {
   clear_password(old_password);
   old_password = old_password_copy;
 
-  new_password = get_new_password();
+  new_password = args.new_plaintext_password ? args.new_plaintext_password :  get_new_password();
   if (new_password == NULL) {
     goto finish;
   }
@@ -448,8 +479,8 @@ finish:
 }
 
 static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[], enum sqlfs_open_mode open_mode) {
-  struct args args = { .no_password = false, .plaintext_password = NULL };
-  if (!parse_args(&argc, argv, &args)) {
+  struct args args = {0};
+  if (!parse_args(&argc, argv, ARG_NO_PASSWORD | ARG_PLAINTEXT_PASSWORD, &args)) {
     return NULL;
   }
   const char *database = get_database_argument(argc, argv, true /* should_exist */);
