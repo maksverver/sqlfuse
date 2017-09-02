@@ -11,7 +11,14 @@
 
 #include "test_common.h"
 
+// Number of expectation failures encountered so far.
 static int failures;
+
+// Linked list of deferred allocations.
+static struct allocation {
+  struct allocation *next;
+  void *ptr;
+} *allocations;
 
 void test_expect_eq(const char *file, int line, const char *func, const char *expr1, const char *expr2, int64_t value1, int64_t value2) {
   if (value1 == value2) return;
@@ -22,6 +29,23 @@ void test_expect_eq(const char *file, int line, const char *func, const char *ex
 
 void test_fail() {
   ++failures;
+}
+
+void defer_free(char *ptr) {
+  struct allocation *alloc = calloc(1, sizeof(struct allocation));
+  assert(alloc != NULL);
+  alloc->next = allocations;
+  alloc->ptr = ptr;
+  allocations = alloc;
+}
+
+void free_deferred() {
+  struct allocation *alloc;
+  while ((alloc = allocations) != NULL) {
+    allocations = alloc->next;
+    free(alloc->ptr);
+    free(alloc);
+  }
 }
 
 static const struct test_case *find_test(const struct test_case *tests, const char *name) {

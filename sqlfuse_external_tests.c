@@ -36,19 +36,12 @@
 #define PATH_MAX 4096
 #endif
 
-// Linked list node for a deferred allocation. (See defer_free().)
-struct allocation {
-  struct allocation *next;
-  void *ptr;
-};
-
 static bool enable_fuse_debug_logging;
 static char *sqlite_path_for_dump;
 static char *testdir;
 static char *mountpoint;
 static char *database;
 static pid_t fuse_pid;
-static struct allocation *allocations;
 
 #ifdef __GNUC__
 static char *aprintf(const char *format, ...)
@@ -73,25 +66,6 @@ static char *aprintf(const char *format, ...) {
   va_end(ap);
 
   return buf;
-}
-
-// Stores ptr as an allocation to be freed later by a call to free_deferred().
-static void defer_free(char *ptr) {
-  struct allocation *alloc = calloc(1, sizeof(struct allocation));
-  CHECK(alloc);
-  alloc->next = allocations;
-  alloc->ptr = ptr;
-  allocations = alloc;
-}
-
-// Frees all allocations passed to defer_free() before.
-static void free_deferred() {
-  struct allocation *alloc;
-  while ((alloc = allocations) != NULL) {
-    allocations = alloc->next;
-    free(alloc->ptr);
-    free(alloc);
-  }
 }
 
 // Returns a temporary string formed as: mountpoint + "/" + relpath.

@@ -18,6 +18,12 @@ void test_expect_eq(const char *file, int line, const char *func, const char *ex
 
 void test_fail();
 
+// Stores ptr as an allocation to be freed later by a call to test_free_deferred().
+void defer_free(char *ptr);
+
+// Frees all allocations registered with defer_free() since the last call to free_deferred().
+void free_deferred();
+
 // Each test case has a name, and a function to execute the test case.
 // The test code may call functions like test_fail() to register a test failure.
 struct test_case {
