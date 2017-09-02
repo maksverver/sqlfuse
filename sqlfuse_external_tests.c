@@ -1,4 +1,4 @@
-// Unit tests for fusesql, which use a separate process to run the sqlfuse code.
+// Unit tests for sqlfuse, which run the sqlfuse code in a separate process.
 //
 // Note: these tests create temporary directories named /tmp/test-xxx-yy, and
 // mounts the filesystem for testing at /tmp/test-xxx-yyy/mnt. If a test fails,
@@ -361,7 +361,7 @@ int main(int argc, char *argv[]) {
         break;
       default:
         fputs(
-          "Usage: sqlfuse_tests [-l] [-t] [-d] [-s sqlite3] [<tests...>]\n\n"
+          "Usage: sqlfuse_external_tests [-l] [-t] [-d] [-s sqlite3] [<tests...>]\n\n"
           "Options:\n"
           "\t-l         enable printing of log statements\n"
           "\t-t         enable printing of function call traces\n"
