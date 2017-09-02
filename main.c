@@ -127,6 +127,9 @@ struct mount_args {
   const char *filepath;
 };
 
+// Extract arguments for the `mount` command. This is special since it
+// recognizes some of the FUSE options, but does not remove them from the
+// argument list.
 struct mount_args extract_mount_arguments(int *argc, char **argv) {
   struct mount_args args = {
     .help = false,
@@ -174,6 +177,34 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
   *argc = j;
   argv[j] = NULL;
   return args;
+}
+
+struct args {
+  bool no_password;
+};
+
+// Parses and removes recognized options from the given argument list.
+static bool parse_args(int *argc, char *argv[], struct args *args) {
+  int j = 1;
+  bool success = true;
+  bool no_more_options = false;
+  for (int i = 1; i < *argc; ++i) {
+    char *arg = argv[i];
+    if (*arg == '-' && !no_more_options) {
+      if (strcmp(arg, "--") == 0) {
+        no_more_options = true;
+      } else if (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0) {
+        args->no_password = true;
+      } else {
+        fprintf(stderr, "Unrecognized option argument: %s\n", arg);
+        success = false;
+      }
+    } else {
+      argv[j++] = arg;
+    }
+  }
+  *argc = j;
+  return success;
 }
 
 static bool validate_database_path(const char *path, bool should_exist) {
@@ -232,14 +263,6 @@ static char *delete_arg(int index, int *argc, char *argv[]) {
   return result;
 }
 
-static bool delete_arg_if_equal(int index, const char *value, int *argc, char *argv[]) {
-  if (index >= *argc || strcmp(argv[index], value) != 0) {
-    return false;
-  }
-  CHECK(strcmp(delete_arg(index, argc, argv), value) == 0);
-  return true;
-}
-
 static void print_version() {
   printf("sqlfuse version %d.%d.%d (database version %d)\n",
       SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFUSE_VERSION_PATCH, SQLFS_SCHEMA_VERSION);
@@ -264,14 +287,16 @@ static int run_help() {
 }
 
 static int run_create(int argc, char *argv[]) {
-  bool no_password = delete_arg_if_equal(1, "-n", &argc, argv) ||
-    delete_arg_if_equal(1, "--no_password", &argc, argv);
+  struct args args = { .no_password = false };
+  if (!parse_args(&argc, argv, &args)) {
+    return 1;
+  }
   const char *database = get_database_argument(argc, argv, false /* should_exist */);
   if (database == NULL) {
     return 1;
   }
   char *password = NULL;
-  if (!no_password) {
+  if (!args.no_password) {
     password = get_new_password();
     if (password == NULL) {
       return 1;
@@ -284,7 +309,7 @@ static int run_create(int argc, char *argv[]) {
     fprintf(stderr, "Failed to create database '%s'.\n", database);
     return 1;
   }
-  printf("Created database '%s' (%s)\n", database, no_password ? "not encrypted" : "encrypted");
+  printf("Created database '%s' (%s)\n", database, args.no_password ? "not encrypted" : "encrypted");
   return 0;
 }
 
@@ -410,14 +435,16 @@ finish:
 }
 
 static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[], enum sqlfs_open_mode open_mode) {
-  bool no_password = delete_arg_if_equal(1, "-n", &argc, argv) ||
-    delete_arg_if_equal(1, "--no_password", &argc, argv);
+  struct args args = { .no_password = false };
+  if (!parse_args(&argc, argv, &args)) {
+    return NULL;
+  }
   const char *database = get_database_argument(argc, argv, true /* should_exist */);
   if (database == NULL) {
     return NULL;
   }
   char *password = NULL;
-  if (!no_password) {
+  if (!args.no_password) {
     password = get_password();
     if (password == NULL) {
       return NULL;
