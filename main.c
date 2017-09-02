@@ -120,6 +120,10 @@ finish:
   return password;
 }
 
+static bool starts_with(const char *string, const char *prefix) {
+  return strncmp(string, prefix, strlen(prefix)) == 0;
+}
+
 struct mount_args {
   bool help;
   bool version;
@@ -127,6 +131,7 @@ struct mount_args {
   bool readonly;
   bool debug;
   const char *filepath;
+  char *plaintext_password;
 };
 
 // Extract arguments for the `mount` command. This is special since it
@@ -139,7 +144,8 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
     .no_password = false,
     .readonly = false,
     .debug = false,
-    .filepath = NULL };
+    .filepath = NULL,
+    .plaintext_password = NULL };
   const int n = *argc;
   int j = 1;
   assert(n >= 1);
@@ -151,6 +157,8 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
       args.readonly = true;
     } else if (arg[0] != '-' && args.filepath == NULL) {
       args.filepath = arg;
+    } else if (starts_with(arg, "--plaintext_password=")) {
+      args.plaintext_password = strchr(arg, '=') + 1;
     } else {
       // Keep this argument.
       argv[j++] = arg;
@@ -183,6 +191,7 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
 
 struct args {
   bool no_password;
+  char *plaintext_password;
 };
 
 // Parses and removes recognized options from the given argument list.
@@ -197,6 +206,8 @@ static bool parse_args(int *argc, char *argv[], struct args *args) {
         no_more_options = true;
       } else if (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0) {
         args->no_password = true;
+      } else if (starts_with(arg, "--plaintext_password=")) {
+        args->plaintext_password = strchr(arg, '=') + 1;
       } else {
         fprintf(stderr, "Unrecognized option argument: %s\n", arg);
         success = false;
@@ -289,7 +300,7 @@ static int run_help() {
 }
 
 static int run_create(int argc, char *argv[]) {
-  struct args args = { .no_password = false };
+  struct args args = { .no_password = false, .plaintext_password = NULL };
   if (!parse_args(&argc, argv, &args)) {
     return 1;
   }
@@ -299,7 +310,7 @@ static int run_create(int argc, char *argv[]) {
   }
   char *password = NULL;
   if (!args.no_password) {
-    password = get_new_password();
+    password = args.plaintext_password ? args.plaintext_password : get_new_password();
     if (password == NULL) {
       return 1;
     }
@@ -352,7 +363,7 @@ static int run_mount(int argc, char *argv[]) {
 
   char *password = NULL;
   if (!args.no_password) {
-    password = get_password();
+    password = args.plaintext_password ? args.plaintext_password : get_password();
     if (password == NULL) {
       return 1;
     }
@@ -437,7 +448,7 @@ finish:
 }
 
 static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[], enum sqlfs_open_mode open_mode) {
-  struct args args = { .no_password = false };
+  struct args args = { .no_password = false, .plaintext_password = NULL };
   if (!parse_args(&argc, argv, &args)) {
     return NULL;
   }
@@ -447,7 +458,7 @@ static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[], enum sqlfs_ope
   }
   char *password = NULL;
   if (!args.no_password) {
-    password = get_password();
+    password = args.plaintext_password ? args.plaintext_password : get_password();
     if (password == NULL) {
       return NULL;
     }
