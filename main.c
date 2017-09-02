@@ -34,7 +34,9 @@ static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs, struct intm
 
   if (fuse_parse_cmdline(&args, &mountpoint, &multithreaded, &foreground) == 0) {
     if (multithreaded) {
-      fprintf(stderr, "Running single-threaded because multi-threading is not supported. (Pass -s to suppress this message.)\n");
+      fprintf(stderr,
+          "Multi-threading is not supported. Continuing in single-threaded mode. "
+          "(Pass -s to suppress this message.)\n");
     }
     logging_enabled = foreground != 0;
 
