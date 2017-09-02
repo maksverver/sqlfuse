@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -46,6 +47,24 @@ void free_deferred() {
     free(alloc->ptr);
     free(alloc);
   }
+}
+
+char *aprintf(const char *format, ...) {
+  va_list ap;
+
+  va_start(ap, format);
+  int n = vsnprintf(NULL, 0, format, ap);
+  va_end(ap);
+
+  assert(n >= 0);
+  char *buf = malloc(n + 1);
+  assert(buf != NULL);
+
+  va_start(ap, format);
+  vsnprintf(buf, n + 1, format, ap);
+  va_end(ap);
+
+  return buf;
 }
 
 static const struct test_case *find_test(const struct test_case *tests, const char *name) {

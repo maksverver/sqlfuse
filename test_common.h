@@ -18,6 +18,15 @@ void test_expect_eq(const char *file, int line, const char *func, const char *ex
 
 void test_fail();
 
+#ifdef __GNUC__
+char *aprintf(const char *format, ...) __attribute__((format(printf, 1, 2)));
+#endif
+
+// Formats a string into a newly allocated buffer. Similar to sprintf() except
+// that the buffer is allocated internally instead of provided by the caller.
+// The caller must free() the pointer returned by this function.
+char *aprintf(const char *format, ...);
+
 // Stores ptr as an allocation to be freed later by a call to test_free_deferred().
 void defer_free(char *ptr);
 

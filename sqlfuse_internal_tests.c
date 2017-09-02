@@ -16,7 +16,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -49,31 +48,6 @@ static struct fuse_args fuse_args;
 static struct fuse_chan *fuse_chan;
 static struct fuse_session *fuse_session;
 static pthread_t fuse_thread;
-
-#ifdef __GNUC__
-static char *aprintf(const char *format, ...)
-  __attribute__((format(printf, 1, 2)));
-#endif
-
-// Formats a string into a newly allocated buffer. The result of aprintf()
-// should be free()d by the caller.
-static char *aprintf(const char *format, ...) {
-  va_list ap;
-
-  va_start(ap, format);
-  int n = vsnprintf(NULL, 0, format, ap);
-  va_end(ap);
-
-  CHECK(n >= 0);
-  char *buf = malloc(n + 1);
-  CHECK(buf);
-
-  va_start(ap, format);
-  vsnprintf(buf, n + 1, format, ap);
-  va_end(ap);
-
-  return buf;
-}
 
 // Returns a temporary string formed as: mountpoint + "/" + relpath.
 // The string should NOT be freed by the caller.
