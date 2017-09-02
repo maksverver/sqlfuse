@@ -250,10 +250,16 @@ static int run_help() {
   fputs("\nUsage:\n"
       "    sqlfuse help\n"
       "    sqlfuse create [-n|--no_password] <database>\n"
-      "    sqlfuse mount [-n|--no_password] <database> <mountpoint> [FUSE options]\n"
+      "    sqlfuse mount [options] <database> <mountpoint> [FUSE options]\n"
       "    sqlfuse rekey <database>\n"
       "    sqlfuse compact [-n|--no_password] <database>\n"
-      "    sqlfuse check [-n|--no_password] <database>\n", stdout);
+      "    sqlfuse check [-n|--no_password] <database>\n"
+      "\n"
+      "Mount options:\n"
+      "    -n|--no_password  Create or open an unencrypted database.\n"
+      "    -r|--readonly     Open the database in read-only mode.\n"
+      "    -h|--help         Verbose help (including FUSE mount options).\n",
+      stdout);
   return 0;
 }
 
