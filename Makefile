@@ -13,11 +13,12 @@ LDLIBS+=-lpthread
 #LDLIBS+=-lrt
 
 COMMON_OBJS=logging.o sqlfs.o sqlfuse.o intmap.o
-ALL_OBJS=$(COMMON_OBJS) main.o sqlfuse_tests.o
+ALL_OBJS=$(COMMON_OBJS) main.o sqlfuse_tests.o sqlfuse_external_tests.o
 SQLFUSE_OBJS=$(COMMON_OBJS) main.o
 INTMAP_TESTS_OBJS=$(COMMON_OBJS) test_common.o intmap_tests.o
 SQLFUSE_TESTS_OBJS=$(COMMON_OBJS) test_common.o sqlfuse_tests.o
-TESTS=intmap_tests sqlfuse_tests
+SQLFUSE_EXTERNAL_TESTS_OBJS=$(COMMON_OBJS) test_common.o sqlfuse_external_tests.o
+TESTS=intmap_tests sqlfuse_tests sqlfuse_external_tests
 
 bin: sqlfuse
 
@@ -30,6 +31,7 @@ tests: $(TESTS)
 run_unit_tests: tests
 	./intmap_tests
 	./sqlfuse_tests
+	./sqlfuse_external_tests
 
 run_leak_tests: tests
 	./run_leak_tests.sh $(TESTS)
@@ -59,10 +61,13 @@ intmap_tests: $(INTMAP_TESTS_OBJS)
 sqlfuse_tests: $(SQLFUSE_TESTS_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(SQLFUSE_TESTS_OBJS) $(LDLIBS)
 
+sqlfuse_external_tests: $(SQLFUSE_EXTERNAL_TESTS_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(SQLFUSE_EXTERNAL_TESTS_OBJS) $(LDLIBS)
+
 clean:
 	rm -f $(ALL_OBJS)
 
 distclean: clean
-	rm -f sqlfuse intmap_tests sqlfuse_tests
+	rm -f sqlfuse intmap_tests sqlfuse_tests sqlfuse_external_tests
 
 .PHONY: bin all test tests run_unit_tests run_leak_tests run_static_analysis clean distclean
