@@ -206,8 +206,6 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
     char *arg = argv[i];
     if (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0) {
       args.no_password = true;
-    } else if (strcmp(arg, "-r") == 0 || strcmp(arg, "--readonly") == 0) {
-      args.readonly = true;
     } else if (arg[0] != '-' && args.filepath == NULL) {
       args.filepath = arg;
     } else if (starts_with(arg, "--plaintext_password=")) {
@@ -220,12 +218,15 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
       //  -h / --help
       //  -V / --version
       //  -d / -odebug / -o debug
+      //  -oro / -o ro
       if (strcmp(arg, "-o") == 0) {
         if (i + 1 < n) {
           arg = argv[++i];
           argv[j++] = arg;
           if (strcmp(arg, "debug") == 0) {
             args.debug = true;
+          } else if (strcmp(arg, "ro") == 0) {
+            args.readonly = true;
           }
         }
       } else if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
@@ -234,6 +235,8 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
         args.version = true;
       } else if (strcmp(arg, "-d") == 0 || strcmp(arg, "-odebug") == 0) {
         args.debug = true;
+      } else if (strcmp(arg, "-oro") == 0) {
+        args.readonly = true;
       }
     }
   }
@@ -372,7 +375,6 @@ static int run_help() {
       "\n"
       "Mount options:\n"
       "    -n|--no_password  Create or open an unencrypted database.\n"
-      "    -r|--readonly     Open the database in read-only mode.\n"
       "    -h|--help         Verbose help (including FUSE mount options).\n",
       stdout);
   return 0;
@@ -420,7 +422,6 @@ static int run_mount(int argc, char *argv[]) {
           "\n"
           "Supported options:\n"
           "    -n   --no_password    don't prompt for password (disables encryption)\n"
-          "    -r   --readonly       open database in read-only mode\n"
           "\n",
           stdout);
     }

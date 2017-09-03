@@ -116,6 +116,9 @@ static void mount_sqlfuse(int sqlfs_open_mode) {
     if (enable_fuse_debug_logging) {
       fuse_opt_add_arg(&fuse_args, "-d");
     }
+    if (sqlfs_open_mode == SQLFS_OPEN_MODE_READONLY) {
+      fuse_opt_add_arg(&fuse_args, "-oro");
+    }
     struct fuse_chan *fuse_chan = fuse_mount(mountpoint, &fuse_args);
     CHECK(fuse_chan);
     struct fuse_session *fuse_session =
@@ -257,20 +260,16 @@ static void test_open_readonly() {
 
   // Can't create new file.
   EXPECT_EQ(mknod(makepath("newfile"), 0600, 0), -1);
-  EXPECT_EQ(errno, EIO);
+  EXPECT_EQ(errno, EROFS);
 
   // Can't create new directory.
   EXPECT_EQ(mkdir(makepath("newdir"), 0755), -1);
-  EXPECT_EQ(errno, EIO);
+  EXPECT_EQ(errno, EROFS);
 
-  // We should not be able to open files for writing. However, because sqlfuse
-  // implements file I/O statelessly, it's possible to open the file with any
-  // mode, but subsequent files will not be writable. This is kind of a bug!
-  // The correct behavior would be for open to return -1 with errno == EACCESS.
+  // Can't open a file for writing.
   fd = open(makepath("file"), O_RDWR);
-  EXPECT(fd >= 0);
-  EXPECT_EQ(write(fd, "bar", 3), -1);
-  EXPECT_EQ(errno, EIO);
+  EXPECT(fd < 0);
+  EXPECT_EQ(errno, EROFS);
   close(fd);
 
   // Can't write to a file that's opened in readonly mode.

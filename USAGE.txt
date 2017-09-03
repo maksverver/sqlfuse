@@ -63,7 +63,6 @@ sqlfuse create [options] <database>
 
 sqlfuse mount [options] <database> <mountpoint> [FUSE options]
 
-  -r  --readonly            Open the database in read-only mode.
   -n  --no_password         Mount an unencrypted database without a password.
   --plaintext_password=...  Password to use (INSECURE).
 
@@ -71,11 +70,12 @@ sqlfuse mount [options] <database> <mountpoint> [FUSE options]
 
   Useful FUSE options:
 
-    -h  To print usage information.
-    -V  To print version information.
-    -s  Run in single-threaded mode.
-    -f  Run in the foreground.
-    -d  Enable debug-mode (implies -f); more verbose logging.
+    -h     To print usage information.
+    -V     To print version information.
+    -s     Run in single-threaded mode.
+    -f     Run in the foreground.
+    -d     Enable debug-mode (implies -f); more verbose logging.
+    -o ro  Open database in readonly mode.
 
 
 sqlfuse rekey <database>

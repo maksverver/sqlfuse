@@ -93,12 +93,12 @@ test ! -e "${MNTDIR}"/empty
 sqlfuse compact --no_password "${DBFILE}"
 
 # Remount readonly. Files should still be there.
-sqlfuse mount --no_password --readonly -s "${DBFILE}" "${MNTDIR}"
+sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR}" -o ro
 verify_files "${MNTDIR}"
 ! touch "${MNTDIR}/newfile" 2>/dev/null
 
 # Can mount the DB twice in readonly mode.
-sqlfuse mount --no_password --readonly -s "${DBFILE}" "${MNTDIR2}"
+sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR2}" -o ro
 mountpoint -q "${MNTDIR2}"
 verify_files "${MNTDIR2}"
 fusermount -u "${MNTDIR2}"
@@ -143,12 +143,12 @@ test ! -e "${MNTDIR}"/empty
 sqlfuse compact --plaintext_password=password1 "${DBFILE}"
 
 # Remount readonly. Files should still be there.
-sqlfuse mount --plaintext_password=password1 --readonly -s "${DBFILE}" "${MNTDIR}"
+sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR}" -o ro
 verify_files "${MNTDIR}"
 ! touch "${MNTDIR}/newfile" 2>/dev/null
 
 # Can mount the DB twice in readonly mode.
-sqlfuse mount --plaintext_password=password1 --readonly -s "${DBFILE}" "${MNTDIR2}"
+sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR2}" -o ro
 mountpoint -q "${MNTDIR2}"
 verify_files "${MNTDIR2}"
 fusermount -u "${MNTDIR2}"
