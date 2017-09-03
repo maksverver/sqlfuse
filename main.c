@@ -184,7 +184,7 @@ struct mount_args {
   bool readonly;
   bool debug;
   const char *filepath;
-  char *plaintext_password;
+  char *insecure_password;
 };
 
 // Extract arguments for the `mount` command. This is special since it
@@ -198,7 +198,7 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
     .readonly = false,
     .debug = false,
     .filepath = NULL,
-    .plaintext_password = NULL };
+    .insecure_password = NULL };
   const int n = *argc;
   int j = 1;
   assert(n >= 1);
@@ -208,8 +208,8 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
       args.no_password = true;
     } else if (arg[0] != '-' && args.filepath == NULL) {
       args.filepath = arg;
-    } else if (starts_with(arg, "--plaintext_password=")) {
-      args.plaintext_password = strchr(arg, '=') + 1;
+    } else if (starts_with(arg, "--insecure_password=")) {
+      args.insecure_password = strchr(arg, '=') + 1;
     } else {
       // Keep this argument.
       argv[j++] = arg;
@@ -247,9 +247,9 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
 
 struct args {
   bool no_password;
-  char *plaintext_password;
-  char *old_plaintext_password;
-  char *new_plaintext_password;
+  char *insecure_password;
+  char *old_insecure_password;
+  char *new_insecure_password;
 };
 
 enum {
@@ -277,16 +277,16 @@ static bool parse_args(int *argc, char *argv[], int supported_args, struct args 
         args->no_password = true;
         recognized = ARG_NO_PASSWORD;
       } else if ((supported_args & ARG_PLAINTEXT_PASSWORD) &&
-            starts_with(arg, "--plaintext_password=")) {
-        args->plaintext_password = strchr(arg, '=') + 1;
+            starts_with(arg, "--insecure_password=")) {
+        args->insecure_password = strchr(arg, '=') + 1;
         recognized = ARG_PLAINTEXT_PASSWORD;
       } else if ((supported_args & ARG_OLD_PLAINTEXT_PASSWORD) &&
-            starts_with(arg, "--old_plaintext_password=")) {
-        args->old_plaintext_password = strchr(arg, '=') + 1;
+            starts_with(arg, "--old_insecure_password=")) {
+        args->old_insecure_password = strchr(arg, '=') + 1;
         recognized = ARG_OLD_PLAINTEXT_PASSWORD;
       } else if ((supported_args & ARG_NEW_PLAINTEXT_PASSWORD) &&
-            starts_with(arg, "--new_plaintext_password=")) {
-        args->new_plaintext_password = strchr(arg, '=') + 1;
+            starts_with(arg, "--new_insecure_password=")) {
+        args->new_insecure_password = strchr(arg, '=') + 1;
         recognized = ARG_NEW_PLAINTEXT_PASSWORD;
       }
       if (recognized) {
@@ -397,7 +397,7 @@ static int run_create(int argc, char *argv[]) {
   }
   char *password = NULL;
   if (!args.no_password) {
-    password = args.plaintext_password ? args.plaintext_password : get_new_password();
+    password = args.insecure_password ? args.insecure_password : get_new_password();
     if (password == NULL) {
       return 1;
     }
@@ -449,7 +449,7 @@ static int run_mount(int argc, char *argv[]) {
 
   char *password = NULL;
   if (!args.no_password) {
-    password = args.plaintext_password ? args.plaintext_password : get_password();
+    password = args.insecure_password ? args.insecure_password : get_password();
     if (password == NULL) {
       return 1;
     }
@@ -529,7 +529,7 @@ static int run_rekey(int argc, char *argv[]) {
   char *old_password_copy = NULL;
   char *new_password = NULL;
 
-  old_password = args.old_plaintext_password ? args.old_plaintext_password : get_password();
+  old_password = args.old_insecure_password ? args.old_insecure_password : get_password();
   if (old_password == NULL) {
     goto finish;
   }
@@ -546,7 +546,7 @@ static int run_rekey(int argc, char *argv[]) {
   clear_password(old_password);
   old_password = old_password_copy;
 
-  new_password = args.new_plaintext_password ? args.new_plaintext_password :  get_new_password();
+  new_password = args.new_insecure_password ? args.new_insecure_password :  get_new_password();
   if (new_password == NULL) {
     goto finish;
   }
@@ -582,7 +582,7 @@ static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[], enum sqlfs_ope
   }
   char *password = NULL;
   if (!args.no_password) {
-    password = args.plaintext_password ? args.plaintext_password : get_password();
+    password = args.insecure_password ? args.insecure_password : get_password();
     if (password == NULL) {
       return NULL;
     }

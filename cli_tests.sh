@@ -122,10 +122,10 @@ rm "${DBFILE}"
 echo 'Testing with a password.'
 
 # Create a test db
-sqlfuse create --plaintext_password=password1 "${DBFILE}"
+sqlfuse create --insecure_password=password1 "${DBFILE}"
 
 # Mount it
-sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR}"
+sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}"
 mountpoint -q "${MNTDIR}"
 
 # Fill it with some test files
@@ -139,38 +139,38 @@ test ! -e "${MNTDIR}"/dir
 test ! -e "${MNTDIR}"/empty
 
 # Compaction.
-! sqlfuse compact --plaintext_password=password2 "${DBFILE}" 2>/dev/null
-sqlfuse compact --plaintext_password=password1 "${DBFILE}"
+! sqlfuse compact --insecure_password=password2 "${DBFILE}" 2>/dev/null
+sqlfuse compact --insecure_password=password1 "${DBFILE}"
 
 # Remount readonly. Files should still be there.
-sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR}" -o ro
+sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}" -o ro
 verify_files "${MNTDIR}"
 ! touch "${MNTDIR}/newfile" 2>/dev/null
 
 # Can mount the DB twice in readonly mode.
-sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR2}" -o ro
+sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" -o ro
 mountpoint -q "${MNTDIR2}"
 verify_files "${MNTDIR2}"
 fusermount -u "${MNTDIR2}"
 
 # Cannot mount a second time in writable mode.
-! sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+! sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
 ! mountpoint -q "${MNTDIR2}"
 
 fusermount -u "${MNTDIR}"
 
 # Cannot mount twice in writable mode
-sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR}"
-! sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}"
+! sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
 fusermount -u "${MNTDIR}"
 
 # Rekey.
-! sqlfuse rekey --old_plaintext_password=wrong --new_plaintext_password=irrelevant "${DBFILE}" 2>/dev/null
-sqlfuse rekey --old_plaintext_password=password1 --new_plaintext_password=password2 "${DBFILE}"
+! sqlfuse rekey --old_insecure_password=wrong --new_insecure_password=irrelevant "${DBFILE}" 2>/dev/null
+sqlfuse rekey --old_insecure_password=password1 --new_insecure_password=password2 "${DBFILE}"
 
 # Remount after rekeying.
-! sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR}" 2>/dev/null
-sqlfuse mount --plaintext_password=password2 -s "${DBFILE}" "${MNTDIR}"
+! sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}" 2>/dev/null
+sqlfuse mount --insecure_password=password2 -s "${DBFILE}" "${MNTDIR}"
 mountpoint -q "${MNTDIR}"
 verify_files "${MNTDIR}"
 

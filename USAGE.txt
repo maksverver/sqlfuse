@@ -22,7 +22,7 @@ For testing and scripting purposes, two additional functions are provided:
   * The -n / --no_password option allows the creation of a database file without
     encryption. These files are regular sqlite3 databases.
 
-  * The --plaintext_password option allows you to specify the password on the
+  * The --insecure_password option allows you to specify the password on the
     command line. THIS IS GENERALLY A BAD IDEA. Command line arguments are
     visible in process listings and may be stored in shell history files.
     Writing a password on the command line is a great way to leak it. Don't do
@@ -56,17 +56,17 @@ sqlfuse help
 sqlfuse create [options] <database>
 
   -n  --no_password         Create an unencrypted database without a password.
-  --plaintext_password=...  Password to use (INSECURE).
+  --insecure_password=...  Password to use (INSECURE).
 
-  Prompts for a new password, unless -n or --plaintext_password is specified.
+  Prompts for a new password, unless -n or --insecure_password is specified.
 
 
 sqlfuse mount [options] <database> <mountpoint> [FUSE options]
 
   -n  --no_password         Mount an unencrypted database without a password.
-  --plaintext_password=...  Password to use (INSECURE).
+  --insecure_password=...  Password to use (INSECURE).
 
-  Prompts for a password, unless -n or --plaintext_password is specified.
+  Prompts for a password, unless -n or --insecure_password is specified.
 
   Useful FUSE options:
 
@@ -80,18 +80,18 @@ sqlfuse mount [options] <database> <mountpoint> [FUSE options]
 
 sqlfuse rekey <database>
 
-  --old_plaintext_password=...  Old password (INSECURE).
-  --new_plaintext_password=...  New password (INSECURE).
+  --old_insecure_password=...  Old password (INSECURE).
+  --new_insecure_password=...  New password (INSECURE).
 
   Change the password on an encrypted database. (Cannot be used to enable/
   disable encryption.) Will prompt for the old and new password, unless
-  --old_plaintext_password and/or --new_plaintext_password are specified.
+  --old_insecure_password and/or --new_insecure_password are specified.
 
 
 sqlfuse compact [options] <database>
 
-  -n  --no_password         Open an unencrypted database without a password.
-  --plaintext_password=...  Password to use (INSECURE).
+  -n  --no_password        Open an unencrypted database without a password.
+  --insecure_password=...  Password to use (INSECURE).
 
   Rewrites the database file to minimize disk space used. This may reduce
   internal fragmentation as well.
@@ -104,8 +104,8 @@ sqlfuse compact [options] <database>
 
 sqlfuse check [options] <database>
 
-  -n  --no_password         Open an unencrypted database without a password.
-  --plaintext_password=...  Password to use (INSECURE).
+  -n  --no_password        Open an unencrypted database without a password.
+  --insecure_password=...  Password to use (INSECURE).
 
   Checks the consistency of the filesystem. This is a read-only operation:
   it will warn if it encounters any errors, but will not attempt to fix them.
