@@ -32,6 +32,20 @@ For testing and scripting purposes, two additional functions are provided:
 In summary, although these options exist, you should not normally use them.
 
 
+=== FILE PERMISSIONS ===
+
+To open a filesystem database in writable mode, you need write permission on
+both the database file itself, and its parent directory.
+
+It is not possible to mount the same database at more than one mountpoint at a
+time (you will get an error message if you try), unless all instances are
+mounted in readonly mode.
+
+SQLite uses file locks to synchronize access to the database. That means it may
+not be safe to mount databases over a network file system that doesn't support
+POSIX file locking.
+
+
 === COMMAND REFERENCE ===
 
 sqlfuse help

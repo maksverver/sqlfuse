@@ -1029,7 +1029,11 @@ struct sqlfs *sqlfs_open(
   }
   if (mode == SQLFS_OPEN_MODE_READWRITE) {
     if (!enable_wal(sqlfs->db)) {
-      fprintf(stderr, "Failed to open database in writable mode. Verify that you have write permission on both the database file and its containing directory, or open the database in read-only mode instead.\n");
+      fprintf(stderr, "Failed to open database in writable mode: %s!\n", sqlite3_errmsg(sqlfs->db));
+      fprintf(stderr, "Possible explanations:\n"
+          "  - The database is in use by another process.\n"
+          "  - You do not have write permissions on the database file.\n"
+          "  - You do not have write permissions on its containing directory.\n");
       goto failure;
     }
     sqlfs->wal_enabled = true;

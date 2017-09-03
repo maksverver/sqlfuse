@@ -1,7 +1,4 @@
 Milestone 0.1.0:
-  - Fix mounting multiple times: shouldn't be possible and leads to corruption!
-    (see cli_tests.sh for details; uncomment failing tests)
-    Root cause: process loses the lock when FUSE forks!
   - Fix readonly support:
     - add a proper unit test
     - return EACCESS/EPERM (which one?) instead of EIO on write operations
