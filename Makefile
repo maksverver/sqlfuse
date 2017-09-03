@@ -24,7 +24,7 @@ bin: sqlfuse
 
 all: bin tests
 
-test: run_unit_tests
+test: run_unit_tests run_cli_tests
 
 tests: $(TESTS)
 
@@ -32,6 +32,9 @@ run_unit_tests: tests
 	./intmap_tests
 	./sqlfuse_internal_tests
 	./sqlfuse_external_tests
+
+run_cli_tests: cli_tests.sh sqlfuse
+	./cli_tests.sh
 
 run_leak_tests: tests
 	./run_leak_tests.sh $(TESTS)
@@ -70,4 +73,4 @@ clean:
 distclean: clean
 	rm -f sqlfuse $(TESTS)
 
-.PHONY: bin all test tests run_unit_tests run_leak_tests run_static_analysis clean distclean
+.PHONY: bin all test tests run_unit_tests run_cli_tests run_leak_tests run_static_analysis clean distclean
