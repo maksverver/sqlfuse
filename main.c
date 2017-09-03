@@ -195,11 +195,10 @@ struct args {
   char *new_plaintext_password;
 };
 
-enum args {
+enum {
   ARG_NO_PASSWORD = 1,
   ARG_PLAINTEXT_PASSWORD = 2,
-  ARG_NEW_PLAINTEXT_PASSWORD = 4
-};
+  ARG_NEW_PLAINTEXT_PASSWORD = 4 };
 
 // Parses and removes recognized options from the given argument list.
 //
