@@ -80,11 +80,12 @@ sqlfuse mount [options] <database> <mountpoint> [FUSE options]
 
 sqlfuse rekey <database>
 
-  --plaintext_password=...      Old password (INSECURE).
+  --old_plaintext_password=...  Old password (INSECURE).
   --new_plaintext_password=...  New password (INSECURE).
 
   Change the password on an encrypted database. (Cannot be used to enable/
-  disable encryption.) Will prompt for the old and new password.
+  disable encryption.) Will prompt for the old and new password, unless
+  --old_plaintext_password and/or --new_plaintext_password are specified.
 
 
 sqlfuse compact [options] <database>

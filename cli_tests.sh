@@ -165,8 +165,8 @@ sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR}"
 fusermount -u "${MNTDIR}"
 
 # Rekey.
-! sqlfuse rekey --plaintext_password=wrong --new_plaintext_password=irrelevant "${DBFILE}" 2>/dev/null
-sqlfuse rekey --plaintext_password=password1 --new_plaintext_password=password2 "${DBFILE}"
+! sqlfuse rekey --old_plaintext_password=wrong --new_plaintext_password=irrelevant "${DBFILE}" 2>/dev/null
+sqlfuse rekey --old_plaintext_password=password1 --new_plaintext_password=password2 "${DBFILE}"
 
 # Remount after rekeying.
 ! sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR}" 2>/dev/null
