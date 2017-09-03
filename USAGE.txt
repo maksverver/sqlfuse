@@ -13,6 +13,25 @@ To view more mount options:
 (Not all FUSE options are supported!)
 
 
+=== ENCRYPTION ===
+
+sqlfuse is designed to be used with encryption enabled.
+
+For testing and scripting purposes, two additional functions are provided:
+
+  * The -n / --no_password option allows the creation of a database file without
+    encryption. These files are regular sqlite3 databases.
+
+  * The --plaintext_password option allows you to specify the password on the
+    command line. THIS IS GENERALLY A BAD IDEA. Command line arguments are
+    visible in process listings and may be stored in shell history files.
+    Writing a password on the command line is a great way to leak it. Don't do
+    this if you care about security. If you don't care about security, then
+    just use the -n option to disable encryption entirely.
+
+In summary, although these options exist, you should not normally use them.
+
+
 === COMMAND REFERENCE ===
 
 sqlfuse help
@@ -20,19 +39,21 @@ sqlfuse help
   Shows basic usage information.
 
 
-sqlfuse create [-n|--no_password] <database>
+sqlfuse create [options] <database>
 
-  -n: Create an unencrypted database without a password.
+  -n  --no_password         Create an unencrypted database without a password.
+  --plaintext_password=...  Password to use (INSECURE).
 
-  Prompts for a new password, unless -n is specified.
+  Prompts for a new password, unless -n or --plaintext_password is specified.
 
 
-sqlfuse mount [-n|--no_password] [-r|--readonly] <database> <mountpoint> [FUSE options]
+sqlfuse mount [options] <database> <mountpoint> [FUSE options]
 
-  -n: Mount an unencrypted database without a password.
-  -r: Open the database in read-only mode.
+  -r  --readonly            Open the database in read-only mode.
+  -n  --no_password         Mount an unencrypted database without a password.
+  --plaintext_password=...  Password to use (INSECURE).
 
-  Promps for a password, unless -n is specified.
+  Prompts for a password, unless -n or --plaintext_password is specified.
 
   Useful FUSE options:
 
@@ -45,11 +66,17 @@ sqlfuse mount [-n|--no_password] [-r|--readonly] <database> <mountpoint> [FUSE o
 
 sqlfuse rekey <database>
 
+  --plaintext_password=...      Old password (INSECURE).
+  --new_plaintext_password=...  New password (INSECURE).
+
   Change the password on an encrypted database. (Cannot be used to enable/
   disable encryption.) Will prompt for the old and new password.
 
 
-sqlfuse compact [-n|--no_password] <database>
+sqlfuse compact [options] <database>
+
+  -n  --no_password         Open an unencrypted database without a password.
+  --plaintext_password=...  Password to use (INSECURE).
 
   Rewrites the database file to minimize disk space used. This may reduce
   internal fragmentation as well.
@@ -60,7 +87,10 @@ sqlfuse compact [-n|--no_password] <database>
   this command should be used sparingly.
 
 
-sqlfuse check [-n|--no_password] <database>
+sqlfuse check [options] <database>
+
+  -n  --no_password         Open an unencrypted database without a password.
+  --plaintext_password=...  Password to use (INSECURE).
 
   Checks the consistency of the filesystem. This is a read-only operation:
   it will warn if it encounters any errors, but will not attempt to fix them.
