@@ -1,5 +1,9 @@
 // Unit tests for sqlfuse, which run sqlfuse code in a separate thread.
 //
+// These tests don't allow closing and reopening of the same database file,
+// because the files are opened in exclusive mode, and in this mode sqlite3
+// doesn't release file locks when the database is closed.
+//
 // Note: these tests create temporary directories named /tmp/test-xxx-yy, and
 // mounts the filesystem for testing at /tmp/test-xxx-yyy/mnt. If a test fails,
 // it may leave the test directory behind. You'll have to clean it up manually.

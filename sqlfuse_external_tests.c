@@ -1,5 +1,7 @@
 // Unit tests for sqlfuse, which run the sqlfuse code in a separate process.
 //
+// These tests allow closing and reopening the same database file.
+//
 // Note: these tests create temporary directories named /tmp/test-xxx-yy, and
 // mounts the filesystem for testing at /tmp/test-xxx-yyy/mnt. If a test fails,
 // it may leave the test directory behind. You'll have to clean it up manually.

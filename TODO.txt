@@ -1,14 +1,13 @@
 Milestone 0.1.0:
+  - Fix mounting multiple times: shouldn't be possible and leads to corruption!
+    (see cli_tests.sh for details; uncomment failing tests)
+    Root cause: process loses the lock when FUSE forks!
   - Fix readonly support:
     - add a proper unit test
     - return EACCESS/EPERM (which one?) instead of EIO on write operations
     - don't allow opening file in write mode
   - think about a cool name & rebrand everything?
   - things to test:
-    - open read-only database file (read operations should still succeed,
-    - create a shell test that does an integration test of all commands
-      (including setting passwords?)
-      write operations should fail gracefully, without crashing)
     - sqlfs tests with encryption (no setup/teardown)
     - sqlfuse: parallel reading from two directories / one directory opened twice
       (this only makes sense to test with very large directories otherwise the
