@@ -5,7 +5,7 @@
 set -e
 # set -o xtrace  # enable this to debug test failures
 
-SQLFUSE=${SQLFUSE:-$(realpath sqlfuse)}
+SQLFUSE=${SQLFUSE:-./sqlfuse}
 FUSERMOUNT=${FUSERMOUNT:-$(which fusermount)}
 
 if [ ! -x "${SQLFUSE}" ]; then
