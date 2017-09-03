@@ -3,7 +3,9 @@
 # Runs basic tests of the CLI tool.
 
 set -e
-# set -o xtrace  # enable this to debug test failures
+
+# For verbose output (useful for debugging), run as: env V=1 ./cli_tests.sh
+test "$V" = 1 && set -o xtrace
 
 SQLFUSE=${SQLFUSE:-./sqlfuse}
 FUSERMOUNT=${FUSERMOUNT:-$(which fusermount)}
@@ -27,6 +29,9 @@ function fusermount() {
 }
 
 function cleanup() {
+  if [ $? -ne 0 ]; then
+    echo 'Test failed! For verbose output, rerun as: env V=1 ./cli_tests.sh'
+  fi
   for dir in "${MNTDIR}" "${MNTDIR2}"; do
     if [ -d "${dir}" ]; then
       if mountpoint -q "${dir}"; then
@@ -92,14 +97,23 @@ sqlfuse mount --no_password --readonly -s "${DBFILE}" "${MNTDIR}"
 verify_files "${MNTDIR}"
 ! touch "${MNTDIR}/newfile" 2>/dev/null
 
-# Can't mount the same db at two places at the same time.
-#if sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR2}"; then
-#  echo "Mounting database twice succeeded unexpectedly."
-#  exit 1
-#fi
-#! mountpoint-q "${MNTDIR2}"
+# Can mount the DB twice in readonly mode.
+sqlfuse mount --no_password --readonly -s "${DBFILE}" "${MNTDIR2}"
+mountpoint -q "${MNTDIR2}"
+verify_files "${MNTDIR2}"
+fusermount -u "${MNTDIR2}"
+
+# Cannot mount a second time in writable mode.
+! sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+! mountpoint -q "${MNTDIR2}"
 
 fusermount -u "${MNTDIR}"
+
+# Cannot mount twice in writable  mode.
+sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR}"
+! sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+fusermount -u "${MNTDIR}"
+
 rm "${DBFILE}"
 
 #
@@ -129,16 +143,25 @@ test ! -e "${MNTDIR}"/empty
 sqlfuse compact --plaintext_password=password1 "${DBFILE}"
 
 # Remount readonly. Files should still be there.
-sqlfuse mount --plaintext_password=password1 --readonly "${DBFILE}" "${MNTDIR}"
+sqlfuse mount --plaintext_password=password1 --readonly -s "${DBFILE}" "${MNTDIR}"
 verify_files "${MNTDIR}"
 ! touch "${MNTDIR}/newfile" 2>/dev/null
 
-# Can't mount the same db at two places at the same time.
-#if sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR2}"; then
-#  echo "Mounting database twice succeeded unexpectedly."
-#  exit 1
-#fi
-#! mountpoint-q "${MNTDIR2}"
+# Can mount the DB twice in readonly mode.
+sqlfuse mount --plaintext_password=password1 --readonly -s "${DBFILE}" "${MNTDIR2}"
+mountpoint -q "${MNTDIR2}"
+verify_files "${MNTDIR2}"
+fusermount -u "${MNTDIR2}"
+
+# Cannot mount a second time in writable mode.
+! sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+! mountpoint -q "${MNTDIR2}"
+
+fusermount -u "${MNTDIR}"
+
+# Cannot mount twice in writable mode
+sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR}"
+! sqlfuse mount --plaintext_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
 fusermount -u "${MNTDIR}"
 
 # Rekey.

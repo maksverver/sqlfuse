@@ -23,55 +23,108 @@ static mode_t getumask() {
   return mask;
 }
 
-// Runs the FUSE low-level main loop. Returns 0 on success.
-// Based on: https://github.com/libfuse/libfuse/blob/fuse_2_6_bugfix/example/hello_ll.c
-static int sqlfuse_main(int argc, char* argv[], struct sqlfs *sqlfs, struct intmap *lookups) {
-  int err = -1;
-  struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
-  char *mountpoint = NULL;
-  int multithreaded = 0;
-  int foreground = 0;
-
-  if (fuse_parse_cmdline(&args, &mountpoint, &multithreaded, &foreground) == 0) {
-    if (multithreaded) {
-      fprintf(stderr,
-          "Multi-threading is not supported. Continuing in single-threaded mode. "
-          "(Pass -s to suppress this message.)\n");
-    }
-    logging_enabled = foreground != 0;
-
-    struct fuse_chan *chan = fuse_mount(mountpoint, &args);
-    if (chan != NULL) {
-      struct sqlfuse_userdata sqlfuse_userdata = { .sqlfs = sqlfs, .lookups = lookups };
-      struct fuse_session *session = fuse_lowlevel_new(
-          &args, &sqlfuse_ops, sizeof(sqlfuse_ops), &sqlfuse_userdata);
-      if (session != NULL) {
-
-        // Daemonization happens here! Afterwards, the cwd will be / and output
-        // is redirected to /dev/null. For debugging, run with -d or -f.
-        fuse_daemonize(foreground);
-
-        if (fuse_set_signal_handlers(session) == 0) {
-          fuse_session_add_chan(session, chan);
-          err = fuse_session_loop(session);
-          fuse_remove_signal_handlers(session);
-          fuse_session_remove_chan(chan);
-        }
-        fuse_session_destroy(session);
-      }
-      fuse_unmount(mountpoint, chan);
-    }
-    fuse_opt_free_args(&args);
-  }
-  return err;
-}
-
 // Overwrites the contents of `password` with zeroes, as a security measure.
 // `password` may be NULL, in which case this function does nothing.
 static void clear_password(char *password) {
   if (password != NULL) {
     memset(password, 0, strlen(password));
   }
+}
+
+static bool finish_daemonization() {
+  if (setsid() == -1) {
+    perror("setsid()");
+    return false;
+  }
+  if (chdir("/") != 0) {
+    perror("chdir(\"/\")");
+    return false;
+  }
+  int fd = open("/dev/null", O_RDWR);
+  if (fd == -1) {
+    perror("open(\"/dev/null\")");
+    return false;
+  }
+  dup2(fd, 0);
+  dup2(fd, 1);
+  dup2(fd, 2);
+  close(fd);
+  return true;
+}
+
+// Runs the FUSE low-level main loop. Returns 0 on success.
+// Based on: https://github.com/libfuse/libfuse/blob/fuse_2_6_bugfix/example/hello_ll.c
+//
+// When running in the background, this function is called from the forked child
+// process. We don't demonize just before entering the FUSE main loop, because
+// we cannot carry SQLite database handles across process boundaries (any locks
+// acquired would be lost).
+//
+// If pipefd is nonnegative, then the function assumes it is running in the
+// background. It will finish demonization by calling finish_demonize(), defined
+// above, and then writing a 0 byte to pipefd to signal succesful completion.
+//
+// See run_mount() below, for how this function is used.
+static int sqlfuse_main(
+    struct fuse_args *fuse_args,
+    bool readonly,
+    char *password,
+    const char *filepath,
+    const char *mountpoint,
+    int pipefd) {
+  const bool foreground = pipefd < 0;
+  logging_enabled = foreground;
+  enum sqlfs_open_mode open_mode = readonly ? SQLFS_OPEN_MODE_READONLY : SQLFS_OPEN_MODE_READWRITE;
+  struct sqlfs *sqlfs = sqlfs_open(filepath, open_mode, password, getumask(), geteuid(), getegid());
+  clear_password(password);
+  password = NULL;
+  if (!sqlfs) {
+    fprintf(stderr, "Failed to open database '%s'.\n", filepath);
+    return 1;
+  }
+  if (sqlfs_purge_all(sqlfs) != 0) {
+    fprintf(stderr, "Failed to purge unlinked entries in database '%s'.\n", filepath);
+    return 1;
+  }
+  struct intmap *lookups = intmap_create();
+  if (lookups == NULL) {
+    fprintf(stderr, "Failed to create intmap.\n");
+    sqlfs_close(sqlfs);
+    return 1;
+  }
+  int err = -1;
+  struct fuse_chan *chan = fuse_mount(mountpoint, fuse_args);
+  if (chan != NULL) {
+    struct sqlfuse_userdata sqlfuse_userdata = { .sqlfs = sqlfs, .lookups = lookups };
+    struct fuse_session *session = fuse_lowlevel_new(
+        fuse_args, &sqlfuse_ops, sizeof(sqlfuse_ops), &sqlfuse_userdata);
+    if (session != NULL) {
+      if (fuse_set_signal_handlers(session) == 0) {
+        fuse_session_add_chan(session, chan);
+        if (foreground || finish_daemonization()) {
+          if (!foreground) {
+            // Daemonization complete. Tell the parent process to exit.
+            char status = 0;
+            if (write(pipefd, &status, sizeof(status)) != 1) {
+              perror("write()");
+            }
+            if (close(pipefd) != 0) {
+              perror("close()");
+            }
+          }
+          // Run the actual FUSE session loop.
+          err = fuse_session_loop(session);
+        }
+        fuse_remove_signal_handlers(session);
+        fuse_session_remove_chan(chan);
+      }
+      fuse_session_destroy(session);
+    }
+    fuse_unmount(mountpoint, chan);
+  }
+  intmap_destroy(lookups);
+  sqlfs_close(sqlfs);
+  return err;
 }
 
 static char *get_password_with_prompt(const char *prompt) {
@@ -395,28 +448,62 @@ static int run_mount(int argc, char *argv[]) {
     }
   }
 
-  enum sqlfs_open_mode open_mode = args.readonly ? SQLFS_OPEN_MODE_READONLY : SQLFS_OPEN_MODE_READWRITE;
-  struct sqlfs *sqlfs = sqlfs_open(args.filepath, open_mode, password, getumask(), geteuid(), getegid());
-  clear_password(password);
-  password = NULL;
-  if (!sqlfs) {
-    fprintf(stderr, "Failed to open database '%s'.\n", args.filepath);
+  struct fuse_args fuse_args = FUSE_ARGS_INIT(argc, argv);
+  char *mountpoint = NULL;
+  int multithreaded = 0;
+  int foreground = 0;
+  if (fuse_parse_cmdline(&fuse_args, &mountpoint, &multithreaded, &foreground) != 0) {
     return 1;
   }
-  if (sqlfs_purge_all(sqlfs) != 0) {
-    fprintf(stderr, "Failed to purge unlinked entries in database '%s'.\n", args.filepath);
-    return 1;
+  if (multithreaded) {
+    fprintf(stderr,
+        "Multi-threading is not supported. Continuing in single-threaded mode. "
+        "(Pass -s to suppress this message.)\n");
   }
-  struct intmap *lookups = intmap_create();
-  if (lookups == NULL) {
-    fprintf(stderr, "Failed to create intmap.\n");
-    sqlfs_close(sqlfs);
-    return 1;
+
+  if (foreground) {
+    // Foreground mode. Run sqlfuse_main() directly, without forking.
+    int err = sqlfuse_main(&fuse_args, args.readonly, password, args.filepath, mountpoint, -1);
+    fuse_opt_free_args(&fuse_args);
+    return err ? 1 : 0;
   }
-  int err = sqlfuse_main(argc, argv, sqlfs, lookups);
-  intmap_destroy(lookups);
-  sqlfs_close(sqlfs);
-  return err ? 1 : 0;
+
+  // Background mode. We will create a pipe for synchronization: the child
+  // process will write a status byte when daemonization is complete, and the
+  // parent process does a blocking read to wait for it.
+  int pipefds[2];
+  if (pipe(pipefds) == -1) {
+    perror("pipe()");
+    return -1;
+  }
+  pid_t child_pid = fork();
+  if (child_pid == -1) {
+    perror("fork()");
+    close(pipefds[0]);
+    close(pipefds[1]);
+    return -1;
+  }
+  if (child_pid == 0) {
+    // In the child process.
+    close(pipefds[0]);
+    int err = sqlfuse_main(&fuse_args, args.readonly, password, args.filepath, mountpoint, pipefds[1]);
+    fuse_opt_free_args(&fuse_args);
+    exit(err ? 1 : 0);
+    return 1;  // unreachable, because exit() does not return
+  } else {
+    // In the parent process.
+    close(pipefds[1]);
+    clear_password(password);
+    fuse_opt_free_args(&fuse_args);
+    // Wait for demonization. If read() fails, that means the child exited
+    // without writing anything to the pipe, which means something went wrong.
+    char status;
+    if (read(pipefds[0], &status, sizeof(status)) != sizeof(status)) {
+      status = 1;
+    }
+    close(pipefds[0]);
+    return status;
+  }
 }
 
 static int run_rekey(int argc, char *argv[]) {
