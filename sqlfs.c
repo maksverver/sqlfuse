@@ -868,6 +868,13 @@ static bool enable_exclusive(sqlite3 *db) {
   return exec_pragma(db, "PRAGMA locking_mode = exclusive", "exclusive");
 }
 
+// Enable secure delete on the database. This ensures that deleted data is
+// overwritten with zeroes, which prevents recovering deleted data from a later
+// version of the database, even if the key is known.
+static bool enable_secure_delete(sqlite3 *db) {
+  return exec_pragma(db, "PRAGMA secure_delete = true", "1");
+}
+
 // Enable WAL journaling mode for higher write performance.
 // More information: https://www.sqlite.org/wal.html
 static bool enable_wal(sqlite3 *db) {
@@ -924,7 +931,7 @@ int sqlfs_create(const char *filepath, const char *password,
   if (!set_password(db, password)) {
     goto failure;
   }
-  if (!enable_exclusive(db) || !enable_wal(db)) {
+  if (!enable_exclusive(db) || !enable_secure_delete(db) || !enable_wal(db)) {
     goto failure;
   }
 
@@ -1024,7 +1031,7 @@ struct sqlfs *sqlfs_open(
       goto failure;
     }
   }
-  if (!enable_exclusive(sqlfs->db)) {
+  if (!enable_exclusive(sqlfs->db) || !enable_secure_delete(sqlfs->db)) {
     goto failure;
   }
   if (mode == SQLFS_OPEN_MODE_READWRITE) {
