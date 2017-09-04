@@ -462,11 +462,10 @@ static int run_mount(int argc, char *argv[]) {
   if (fuse_parse_cmdline(&fuse_args, &mountpoint, &multithreaded, &foreground) != 0) {
     return 1;
   }
-  if (multithreaded) {
-    fprintf(stderr,
-        "Multi-threading is not supported. Continuing in single-threaded mode. "
-        "(Pass -s to suppress this message.)\n");
-  }
+
+  // `multithreaded` is ignored, because we only support single-threaded mode.
+  // We used to print a warning, but it's confusing and annoying, so silently
+  // run in single-threaded mode instead.
 
   if (foreground) {
     // Foreground mode. Run sqlfuse_main() directly, without forking.
