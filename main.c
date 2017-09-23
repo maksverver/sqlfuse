@@ -135,6 +135,8 @@ static int sqlfuse_main(
 }
 
 static char *get_password_with_prompt(const char *prompt) {
+  // Note: getpass() allocates a temporary buffer (via getline()) which is never
+  // freed. When running with mtrace, this will be reported as a memory leak.
   char *password = getpass(prompt);
   if (password == NULL) {
     fprintf(stderr, "Failed to read password.\n");
