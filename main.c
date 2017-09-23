@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +16,8 @@
 #include "logging.h"
 #include "sqlfs.h"
 #include "sqlfuse.h"
+
+#define PROGRAM_NAME "sqlfuse"
 
 // Returns the current umask. WARNING: This is not thread-safe!
 static mode_t getumask() {
@@ -183,6 +186,8 @@ struct mount_args {
   bool no_password;
   bool readonly;
   bool debug;
+  bool have_fsname;
+  bool have_subtype;
   const char *filepath;
   char *insecure_password;
 };
@@ -219,6 +224,8 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
       //  -V / --version
       //  -d / -odebug / -o debug
       //  -oro / -o ro
+      //  -ofsname=... / -o fsname=...
+      //  -osubtype=... / -o subtype=...
       if (strcmp(arg, "-o") == 0) {
         if (i + 1 < n) {
           arg = argv[++i];
@@ -227,6 +234,10 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
             args.debug = true;
           } else if (strcmp(arg, "ro") == 0) {
             args.readonly = true;
+          } else if (starts_with(arg, "fsname=")) {
+            args.have_fsname = true;
+          } else if (starts_with(arg, "subtype=")) {
+            args.have_subtype = true;
           }
         }
       } else if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
@@ -237,6 +248,10 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
         args.debug = true;
       } else if (strcmp(arg, "-oro") == 0) {
         args.readonly = true;
+      } else if (starts_with(arg, "-ofsname=")) {
+        args.have_fsname = true;
+      } else if (starts_with(arg, "-osubtype=")) {
+        args.have_subtype = true;
       }
     }
   }
@@ -364,9 +379,21 @@ static char *delete_arg(int index, int *argc, char *argv[]) {
   return result;
 }
 
+struct fuse_args alloc_fuse_args(int argc, char *argv[]) {
+  struct fuse_args result = {
+    .argc = argc,
+    .argv = calloc(argc + 1, sizeof(char*)),
+    .allocated = 1};
+  CHECK(result.argv);
+  for (int i = 0; i < argc; ++i) {
+    result.argv[i] = strdup(argv[i]);
+  }
+  return result;
+}
+
 static void print_version() {
-  printf("sqlfuse version %d.%d.%d (database version %d)\n",
-      SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFUSE_VERSION_PATCH, SQLFS_SCHEMA_VERSION);
+  printf("%s version %d.%d.%d (database version %d)\n",
+      PROGRAM_NAME, SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFUSE_VERSION_PATCH, SQLFS_SCHEMA_VERSION);
 }
 
 static int run_help() {
@@ -455,7 +482,25 @@ static int run_mount(int argc, char *argv[]) {
     }
   }
 
-  struct fuse_args fuse_args = FUSE_ARGS_INIT(argc, argv);
+  struct fuse_args fuse_args = alloc_fuse_args(argc, argv);
+  if (!args.have_fsname) {
+    // Add the absolute path to the database file as the filesystem name.
+    // This shows up as the first field in mount.
+    char abspath[PATH_MAX];
+    if (realpath(args.filepath, abspath) == NULL) {
+      // If we couldn't resolve the absolute path for whatever reason, keep the
+      // relative path, instead.
+      snprintf(abspath, sizeof(abspath), "%s", args.filepath);
+    }
+    char arg[PATH_MAX + 16];
+    snprintf(arg, sizeof(arg), "-ofsname=%s", abspath);
+    fuse_opt_add_arg(&fuse_args, arg);
+  }
+  if (!args.have_subtype) {
+    // Set the filesystem subtype. This shows up as the third field in mount.
+    fuse_opt_add_arg(&fuse_args, "-osubtype=" PROGRAM_NAME);
+  }
+
   char *mountpoint = NULL;
   int multithreaded = 0;
   int foreground = 0;
