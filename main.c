@@ -460,6 +460,8 @@ static int run_mount(int argc, char *argv[]) {
   int multithreaded = 0;
   int foreground = 0;
   if (fuse_parse_cmdline(&fuse_args, &mountpoint, &multithreaded, &foreground) != 0) {
+    free(mountpoint);
+    fuse_opt_free_args(&fuse_args);
     return 1;
   }
 
@@ -470,6 +472,7 @@ static int run_mount(int argc, char *argv[]) {
   if (foreground) {
     // Foreground mode. Run sqlfuse_main() directly, without forking.
     int err = sqlfuse_main(&fuse_args, args.readonly, password, args.filepath, mountpoint, -1);
+    free(mountpoint);
     fuse_opt_free_args(&fuse_args);
     return err ? 1 : 0;
   }
@@ -493,6 +496,7 @@ static int run_mount(int argc, char *argv[]) {
     // In the child process.
     close(pipefds[0]);
     int err = sqlfuse_main(&fuse_args, args.readonly, password, args.filepath, mountpoint, pipefds[1]);
+    free(mountpoint);
     fuse_opt_free_args(&fuse_args);
     exit(err ? 1 : 0);
     return 1;  // unreachable, because exit() does not return
@@ -500,6 +504,7 @@ static int run_mount(int argc, char *argv[]) {
     // In the parent process.
     close(pipefds[1]);
     clear_password(password);
+    free(mountpoint);
     fuse_opt_free_args(&fuse_args);
     // Wait for demonization. If read() fails, that means the child exited
     // without writing anything to the pipe, which means something went wrong.
