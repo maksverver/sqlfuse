@@ -17,6 +17,10 @@
 #include "sqlfs.h"
 #include "sqlfuse.h"
 
+#ifdef WITH_MTRACE
+#include <mcheck.h>
+#endif
+
 #define PROGRAM_NAME "sqlfuse"
 
 // Returns the current umask. WARNING: This is not thread-safe!
@@ -669,6 +673,10 @@ static int run_check(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
+#ifdef WITH_MTRACE
+  mtrace();
+#endif
+
   const char *command = argc < 2 ? "help" : delete_arg(1, &argc, argv);
 
   if (strcmp(command, "create") == 0) {
