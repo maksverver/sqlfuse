@@ -676,6 +676,8 @@ static int run_check(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
 #ifdef WITH_MTRACE
+  fprintf(stderr, "WARNING: mtrace() support is enabled for this build.\n"
+      "It should be used for testing purposes only!\n\n");
   mtrace();
 #endif
 
