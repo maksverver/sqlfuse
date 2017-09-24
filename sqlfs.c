@@ -1065,11 +1065,13 @@ failure:
 }
 
 void sqlfs_close(struct sqlfs *sqlfs) {
+  if (sqlfs == NULL) {
+    return;
+  }
   // From the SQLite docs:
   //  "Applications should finalize all prepared statements, close all BLOB
   //   handles, and finish all sqlite3_backup objects associated with the
   //   sqlite3 object prior to attempting to close the object."
-  CHECK(sqlfs);
   CHECK(sqlfs->dir_stmt == NULL);
   for (int i = 0; i < NUM_STATEMENTS; ++i) {
     if (sqlfs->stmt[i]) {

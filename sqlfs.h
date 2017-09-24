@@ -59,6 +59,7 @@ struct sqlfs *sqlfs_open(
     mode_t umask, uid_t uid, gid_t gid);
 
 // Releases the filesystem state. Afterwards, the state should not be used.
+// `sqlfs` may be NULL. In that case, calling this function has no effect.
 void sqlfs_close(struct sqlfs *sqlfs);
 
 // Changes the password on an encrypted database.
