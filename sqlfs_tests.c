@@ -52,18 +52,33 @@ static void global_teardown() {
   database = NULL;
 }
 
+static struct sqlfs_options get_options(const char *password) {
+  const struct sqlfs_options options = {
+      .filepath = database,
+      .password = password,
+      .uid = geteuid(),
+      .gid = getegid(),
+      .umask = 0022,
+      // We set kdf_iter to a very low number, because the default setting makes
+      // this test run very slowly when running with leak checking enabled.
+      //
+      // The reason for this is that OpenSSL does several memory allocations per
+      // iteration, so the default setting causes a huge amount allocations. We
+      // can get away with lowering the number of iterations during the test,
+      // because we don't care about key strength while testing.
+      .kdf_iter = 10,
+  };
+  return options;
+}
+
 static void create_database(const char *password) {
-  mode_t umask = 0022;
-  uid_t uid = geteuid();
-  gid_t gid = getegid();
-  CHECK(sqlfs_create(database, password, umask, uid, gid) == 0);
+  const struct sqlfs_options options = get_options(password);
+  CHECK(sqlfs_create(&options) == 0);
 }
 
 static struct sqlfs *open_database(const char *password) {
-  mode_t umask = 0022;
-  uid_t uid = geteuid();
-  gid_t gid = getegid();
-  return sqlfs_open(database, SQLFS_OPEN_MODE_READWRITE, password, umask, uid, gid);
+  const struct sqlfs_options options = get_options(password);
+  return sqlfs_open(SQLFS_OPEN_MODE_READWRITE, &options);
 }
 
 static int suppress_stderr() {

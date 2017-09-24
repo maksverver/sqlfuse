@@ -98,12 +98,14 @@ static void *fuse_thread_func(void *arg) {
 }
 
 static void setup() {
-  mode_t umask = 0022;
-  uid_t uid = geteuid();
-  gid_t gid = getegid();
-  const char *password = NULL;
-  CHECK(sqlfs_create(database, password, umask, uid, gid) == 0);
-  sqlfs = sqlfs_open(database, SQLFS_OPEN_MODE_READWRITE, password, umask, uid, gid);
+  const struct sqlfs_options options = {
+      .filepath = database,
+      .password = NULL,
+      .uid = geteuid(),
+      .gid = getegid(),
+      .umask = 0022};
+  CHECK(sqlfs_create(&options) == 0);
+  sqlfs = sqlfs_open(SQLFS_OPEN_MODE_READWRITE, &options);
   CHECK(sqlfs);
 
   lookups = intmap_create();

@@ -82,7 +82,13 @@ static int sqlfuse_main(
   const bool foreground = pipefd < 0;
   logging_enabled = foreground;
   enum sqlfs_open_mode open_mode = readonly ? SQLFS_OPEN_MODE_READONLY : SQLFS_OPEN_MODE_READWRITE;
-  struct sqlfs *sqlfs = sqlfs_open(filepath, open_mode, password, getumask(), geteuid(), getegid());
+  const struct sqlfs_options options = {
+      .filepath = filepath,
+      .password = password,
+      .uid = geteuid(),
+      .gid = getegid(),
+      .umask = getumask()};
+  struct sqlfs *sqlfs = sqlfs_open(open_mode, &options);
   clear_password(password);
   password = NULL;
   if (!sqlfs) {
@@ -435,7 +441,13 @@ static int run_create(int argc, char *argv[]) {
       return 1;
     }
   }
-  int err = sqlfs_create(database, password, getumask(), geteuid(), getegid());
+  const struct sqlfs_options options = {
+      .filepath = database,
+      .password = password,
+      .uid = geteuid(),
+      .gid = getegid(),
+      .umask = getumask()};
+  int err = sqlfs_create(&options);
   clear_password(password);
   password = NULL;
   if (err != 0) {
@@ -588,7 +600,13 @@ static int run_rekey(int argc, char *argv[]) {
   if (old_password == NULL) {
     goto finish;
   }
-  sqlfs = sqlfs_open(database, SQLFS_OPEN_MODE_READWRITE, old_password, getumask(), geteuid(), getegid());
+  const struct sqlfs_options options = {
+      .filepath = database,
+      .password = old_password,
+      .uid = geteuid(),
+      .gid = getegid(),
+      .umask = getumask()};
+  sqlfs = sqlfs_open(SQLFS_OPEN_MODE_READWRITE, &options);
   if (sqlfs == NULL) {
     fprintf(stderr, "Failed to open database '%s'.\n", database);
     goto finish;
@@ -642,7 +660,13 @@ static struct sqlfs *open_sqlfs_from_args(int argc, char *argv[], enum sqlfs_ope
       return NULL;
     }
   }
-  return sqlfs_open(database, open_mode, password, getumask(), geteuid(), getegid());
+  const struct sqlfs_options options = {
+      .filepath = database,
+      .password = password,
+      .uid = geteuid(),
+      .gid = getegid(),
+      .umask = getumask()};
+  return sqlfs_open(open_mode, &options);
 }
 
 static int run_compact(int argc, char *argv[]) {

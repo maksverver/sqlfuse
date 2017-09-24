@@ -900,13 +900,24 @@ static bool disable_wal(sqlite3 *db) {
 // Sets the encryption parameters (password and cipher page size) of the
 // database. This must be done immediately after opening the database.
 // If password == NULL, this function does nothing but returns true.
-static bool set_password(sqlite3 *db, const char *password) {
+static bool set_password(sqlite3 *db, const char *password, int kdf_iter) {
   if (password == NULL) {
     return true;
+  }
+  if (kdf_iter < 0) {
+    return false;
   }
 
   if (sqlite3_key(db, password, strlen(password)) != SQLITE_OK) {
     return false;
+  }
+
+  if (kdf_iter > 0) {
+    char buf[40];
+    snprintf(buf, sizeof(buf), "PRAGMA kdf_iter = %d", kdf_iter);
+    if (!exec_sql(db, buf)) {
+      return false;
+    }
   }
 
   // cipher_page_size must be set immediately after setting the password.
@@ -920,15 +931,32 @@ static bool set_password(sqlite3 *db, const char *password) {
   return exec_sql(db, "PRAGMA cipher_page_size = 1024");
 }
 
-int sqlfs_create(const char *filepath, const char *password,
-    mode_t umask, uid_t uid, gid_t gid) {
+static bool validate_options(const struct sqlfs_options *options) {
+  if (options == NULL) {
+    return false;
+  }
+  if (options->filepath == NULL) {
+    return false;
+  }
+  if (options->kdf_iter < 0) {
+    return false;
+  }
+  return true;
+}
+
+int sqlfs_create(const struct sqlfs_options *options) {
+  if (!validate_options(options)) {
+    return EINVAL;
+  }
+
   int err = EIO;
   sqlite3 *db = NULL;
 
-  if (sqlite3_open_v2(filepath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
+  int open_flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+  if (sqlite3_open_v2(options->filepath, &db, open_flags, NULL) != SQLITE_OK) {
     goto failure;
   }
-  if (!set_password(db, password)) {
+  if (!set_password(db, options->password, options->kdf_iter)) {
     goto failure;
   }
   if (!enable_exclusive(db) || !enable_secure_delete(db) || !enable_wal(db)) {
@@ -957,7 +985,7 @@ int sqlfs_create(const char *filepath, const char *password,
 #undef STR
 #undef STR2
 
-  if (!create_root_directory(db, umask, uid, gid)) {
+  if (!create_root_directory(db, options->umask, options->uid, options->gid)) {
     goto failure;
   }
 
@@ -980,27 +1008,31 @@ failure:
   return err;
 }
 
-struct sqlfs *sqlfs_open(
-    const char *filepath, enum sqlfs_open_mode mode, const char *password,
-    mode_t umask, uid_t uid, gid_t gid) {
+struct sqlfs *sqlfs_open(enum sqlfs_open_mode mode,
+    const struct sqlfs_options *options) {
 
   if (mode != SQLFS_OPEN_MODE_READONLY && mode != SQLFS_OPEN_MODE_READWRITE) {
-    DLOG("%s(filepath=[%s], mode=%d) invalid mode\n", __func__, filepath, mode);
+    DLOG("%s() invalid mode=%d\n", __func__, mode);
+    return NULL;
+  }
+
+  if (!validate_options(options)) {
+    DLOG("%s() invalid options\n", __func__);
     return NULL;
   }
 
   struct sqlfs *sqlfs = calloc(1, sizeof(struct sqlfs));
   CHECK(sqlfs);
-  sqlfs->umask = umask;
-  sqlfs->uid = uid;
-  sqlfs->gid = gid;
+  sqlfs->umask = options->umask;
+  sqlfs->uid = options->uid;
+  sqlfs->gid = options->gid;
   sqlfs->blocksize = 4096;  /* default Linux pagesize */
 
   int open_flags = mode == SQLFS_OPEN_MODE_READONLY ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
-  if (sqlite3_open_v2(filepath, &sqlfs->db, open_flags, NULL) != SQLITE_OK) {
+  if (sqlite3_open_v2(options->filepath, &sqlfs->db, open_flags, NULL) != SQLITE_OK) {
     goto failure;
   }
-  if (!set_password(sqlfs->db, password)) {
+  if (!set_password(sqlfs->db, options->password, options->kdf_iter)) {
     goto failure;
   }
 

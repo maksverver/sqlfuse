@@ -29,34 +29,39 @@ enum sqlfs_open_mode {
 // The state for a single filesystem.
 struct sqlfs;
 
+// Options for sqlfs_create() and sqlfs_open().
+struct sqlfs_options {
+  // Path to the database file.
+  const char *filepath;
+
+  // Password to use. May be NULL to disable encryption.
+  const char *password;
+
+  // Effective uid, gid and umask to apply. These affect the permissions used
+  // to create new files and directories.
+  uid_t uid;
+  gid_t gid;
+  mode_t umask;
+
+  // Number of iterations of PBKDF2 to apply (if password != NULL). This should
+  // only be changed in tests. If 0, the SQLCipher default (typically 64,000)
+  // will be used.
+  int kdf_iter;
+};
+
 // Creates a new filesystem at the given path.
 //
-//  filepath: path to the database file.
-//  password: password to use. May be NULL to disable encryption.
-//  umask: umask to apply when creating the root directory.
-//  uid: user id to use for the root directory.
-//  gid: group id to use for the root directory.
-//
-// Returns 0 if the filesystem was created successfully, or EIO otherwise.
-int sqlfs_create(
-    const char *filepath, const char *password,
-    mode_t umask, uid_t uid, gid_t gid);
+// Returns 0 if the filesystem was created successfully, EINVAL if options is
+// NULL or contains an invalid value, or EIO otherwise.
+int sqlfs_create(const struct sqlfs_options *options);
 
 // Opens a filesystem at the given path.
 //
 // Returns NULL if the file could not be opened (e.g. invalid path, incorrect
 // password, invalid file format, etc.). Otherwise, returns a pointer to the
 // filesystem state, which must be released by calling sqlfs_close() later.
-//
-//  filepath: path to the database file.
-//  mode: whether to open the file for reading and writing, or reading only.
-//  password: password to use. May be NULL to disable encryption.
-//  umask: umask to use for this session
-//  uid: user id to use for this session
-//  gid: group id to use for this session
-struct sqlfs *sqlfs_open(
-    const char *filepath, enum sqlfs_open_mode mode, const char *password,
-    mode_t umask, uid_t uid, gid_t gid);
+struct sqlfs *sqlfs_open(enum sqlfs_open_mode mode,
+    const struct sqlfs_options *options);
 
 // Releases the filesystem state. Afterwards, the state should not be used.
 // `sqlfs` may be NULL. In that case, calling this function has no effect.

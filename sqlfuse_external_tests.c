@@ -76,12 +76,19 @@ static void global_teardown() {
   database = NULL;
 }
 
+static struct sqlfs_options get_options() {
+  const struct sqlfs_options options = {
+      .filepath = database,
+      .password = NULL,
+      .uid = geteuid(),
+      .gid = getegid(),
+      .umask = 0022};
+  return options;
+}
+
 static void create_database() {
-  mode_t umask = 0022;
-  uid_t uid = geteuid();
-  gid_t gid = getegid();
-  const char *password = NULL;
-  CHECK(sqlfs_create(database, password, umask, uid, gid) == 0);
+  const struct sqlfs_options options = get_options();
+  CHECK(sqlfs_create(&options) == 0);
 }
 
 static void mount_sqlfuse(int sqlfs_open_mode) {
@@ -95,11 +102,8 @@ static void mount_sqlfuse(int sqlfs_open_mode) {
   if (fuse_pid == 0) {
     close(pipefd[0]);
 
-    mode_t umask = 0022;
-    uid_t uid = geteuid();
-    gid_t gid = getegid();
-    const char *password = NULL;
-    struct sqlfs *sqlfs = sqlfs_open(database, sqlfs_open_mode, password, umask, uid, gid);
+    const struct sqlfs_options options = get_options();
+    struct sqlfs *sqlfs = sqlfs_open(sqlfs_open_mode, &options);
     CHECK(sqlfs);
 
     struct intmap *lookups = intmap_create();
