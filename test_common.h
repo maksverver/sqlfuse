@@ -27,6 +27,12 @@ char *aprintf(const char *format, ...) __attribute__((format(printf, 1, 2)));
 // The caller must free() the pointer returned by this function.
 char *aprintf(const char *format, ...);
 
+// Returns a newly allocated buffer of the requested size, filled with zeroes.
+//
+// The returned buffer has been passed to defer_free(), so it will be freed by
+// the next call to free_deferred(). The caller should not free it explicitly.
+void *test_alloc(size_t size);
+
 // Stores ptr as an allocation to be freed later by a call to test_free_deferred().
 void defer_free(char *ptr);
 

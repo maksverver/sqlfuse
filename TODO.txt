@@ -1,13 +1,8 @@
+Optional:
+  - Think about a cool name & rebrand everything?
+
 Milestone 0.1.0:
-  - think about a cool name & rebrand everything?
-  - things to test:
-    - sqlfs tests with encryption (no setup/teardown)
-    - sqlfuse: parallel reading from two directories / one directory opened twice
-      (this only makes sense to test with very large directories otherwise the
-       entire directory is probably read into one buffer?)
-    - Add unit tests on the sqlfs level:
-       - unaligned read() (currently entirely untested!)
-       - opendir()/readdir()/closedir() with various edge cases
+  - Add sqlfs_test: opendir()/readdir()/closedir() with various edge cases
   - create a README with some information and usage notes.
     (This should contain everything which is currently spread over USAGE,
      NOTES, and TODO, though pure TODOs can stay in this file.)
@@ -28,6 +23,7 @@ Milestone 1.1.0:
 
 Maybe later:
   - Generate a man-page.
+  - Port to FreeBSD/OpenBSD.
   - Add a flag to override the cipher_page_size? (Would apply to all commands.)
   - Add a benchmark test
       - Read/write perfomance test (random/sequential reads/writes in a file)

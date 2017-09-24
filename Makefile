@@ -23,7 +23,7 @@ SQLFS_TESTS_OBJS=$(COMMON_OBJS) test_common.o sqlfs_tests.o
 SQLFUSE_INTERNAL_TESTS_OBJS=$(COMMON_OBJS) test_common.o sqlfuse_internal_tests.o
 SQLFUSE_EXTERNAL_TESTS_OBJS=$(COMMON_OBJS) test_common.o sqlfuse_external_tests.o
 
-LEAK_TESTABLE_TESTS=intmap_tests
+LEAK_TESTABLE_TESTS=intmap_tests sqlfs_tests
 UNIT_TESTS=$(LEAK_TESTABLE_TESTS) sqlfuse_internal_tests sqlfuse_external_tests
 
 bin: sqlfuse
@@ -65,6 +65,9 @@ sqlfuse: $(SQLFUSE_OBJS)
 
 intmap_tests: $(INTMAP_TESTS_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(INTMAP_TESTS_OBJS) $(LDLIBS)
+
+sqlfs_tests: $(SQLFS_TESTS_OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(SQLFS_TESTS_OBJS) $(LDLIBS)
 
 sqlfuse_internal_tests: $(SQLFUSE_INTERNAL_TESTS_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(SQLFUSE_INTERNAL_TESTS_OBJS) $(LDLIBS)

@@ -32,6 +32,12 @@ void test_fail() {
   ++failures;
 }
 
+void *test_alloc(size_t size) {
+  void *p = calloc(size, 1);
+  defer_free(p);
+  return p;
+}
+
 void defer_free(char *ptr) {
   struct allocation *alloc = calloc(1, sizeof(struct allocation));
   assert(alloc != NULL);
