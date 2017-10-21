@@ -23,6 +23,8 @@
 
 #define PROGRAM_NAME "sqlfuse"
 
+static const char *arg_askpass = NULL;
+
 // Returns the current umask. WARNING: This is not thread-safe!
 static mode_t getumask() {
   mode_t mask = umask(0);
@@ -141,18 +143,46 @@ static int sqlfuse_main(
 }
 
 static char *get_password_with_prompt(const char *prompt) {
-  // Note: getpass() allocates a temporary buffer (via getline()) which is never
-  // freed. When running with mtrace, this will be reported as a memory leak.
-  char *password = getpass(prompt);
-  if (password == NULL) {
-    fprintf(stderr, "Failed to read password.\n");
-    return NULL;
+  if (arg_askpass == NULL) {
+    // Method 1: use getpass() to get a password.
+    //
+    // Note: getpass() allocates a temporary buffer (via getline()) which is
+    // never freed. When running with mtrace, this will be reported as a memory
+    // leak.
+    char *password = getpass(prompt);
+    if (password == NULL) {
+      fprintf(stderr, "Failed to read password.\n");
+      return NULL;
+    }
+    if (!*password) {
+      fprintf(stderr, "Empty password not accepted. (Use the -n/--no_password option to disable encryption.)\n");
+      return NULL;
+    }
+    return password;
+  } else {
+    // Method 2: invoke the askpass program, which should write the password
+    // on a single of output.
+    //
+    // Similar to above, the buffer is allocated statically, so it will be
+    // considered leaked (even though only one buffer is allocated globally).
+    static char *line = NULL;
+    static size_t capacity = 0;
+    FILE *fp = popen(arg_askpass, "r");
+    if (fp == NULL) {
+      fprintf(stderr, "Failed to launch askpass program (%s).\n", arg_askpass);
+      return NULL;
+    }
+    fprintf(stderr, "%s (provide response in askpass program)\n", prompt);
+    ssize_t len = getline(&line, &capacity, fp);
+    pclose(fp);
+    if (len <= 0 || line[len - 1] != '\n') {
+      fprintf(stderr, "Failed to read line from askpass program.\n");
+      free(line);
+      return NULL;
+    }
+    line[len - 1] = '\0';
+    return line;
   }
-  if (!*password) {
-    fprintf(stderr, "Empty password not accepted. (Use the -n/--no_password option to disable encryption.)\n");
-    return NULL;
-  }
-  return password;
 }
 
 // Returns a non-empty password in a temporary buffer, or NULL if the password
@@ -420,7 +450,10 @@ static int run_help() {
       "\n"
       "Mount options:\n"
       "    -n|--no_password  Create or open an unencrypted database.\n"
-      "    -h|--help         Verbose help (including FUSE mount options).\n",
+      "    -h|--help         Verbose help (including FUSE mount options).\n"
+      "\n"
+      "Common options:\n"
+      "   --askpass=command  Command used to ask for a password.\n",
       stdout);
   return 0;
 }
@@ -698,6 +731,19 @@ static int run_check(int argc, char *argv[]) {
   return 1;
 }
 
+static void parse_common_args(int *argc, char *argv[]) {
+  int i = 1, j = 1, n = *argc;
+  for (; i < n; ++i) {
+    if (starts_with(argv[i], "--askpass=")) {
+      arg_askpass = argv[i] + strlen("--askpass=");
+    } else {
+      argv[j++] = argv[i];
+    }
+  }
+  argv[j] = NULL;
+  *argc = j;
+}
+
 int main(int argc, char *argv[]) {
 #ifdef WITH_MTRACE
   fprintf(stderr, "WARNING: mtrace() support is enabled for this build.\n"
@@ -706,6 +752,8 @@ int main(int argc, char *argv[]) {
 #endif
 
   const char *command = argc < 2 ? "help" : delete_arg(1, &argc, argv);
+
+  parse_common_args(&argc, argv);
 
   if (strcmp(command, "create") == 0) {
     return run_create(argc, argv);

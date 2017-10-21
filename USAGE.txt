@@ -109,3 +109,15 @@ sqlfuse check [options] <database>
   Checks the consistency of the filesystem. This is a read-only operation:
   it will warn if it encounters any errors, but will not attempt to fix them.
 
+
+All commands that take passwords also support the following option:
+
+  --askpass=command
+
+If specified, instead of using libc's getpass() function to read a password from
+the controlling tty, the given command is executed to obtain a password. The
+command should print a single line of output: the password entered by the user.
+
+To unmount a directory, use:
+
+  fusermount -u /path/to/mountpoint
