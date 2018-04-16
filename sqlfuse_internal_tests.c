@@ -626,7 +626,7 @@ static void test_read_write() {
   setup();
 
   const char *path = makepath("file");
-  int fd = open(path, O_CREAT | O_RDWR);
+  int fd = open(path, O_CREAT | O_RDWR, 0666);
   EXPECT(fd >= 0);
 
   char dummy;
@@ -658,7 +658,7 @@ static void test_read_write() {
 }
 
 static void update_contents(const char *path, const char *data, size_t size) {
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC);
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
   EXPECT(fd >= 0);
   EXPECT_EQ(write(fd, data, size), size);
   close(fd);
@@ -1104,7 +1104,7 @@ static void test_fsync() {
 
   const char *path_file = makepath("file");
 
-  int fd = open(path_file, O_CREAT | O_WRONLY);
+  int fd = open(path_file, O_CREAT | O_WRONLY, 0666);
   EXPECT(fd >= 0);
   EXPECT_EQ(write(fd, "foo", 3), 3);
   // We can't really verify that the underlying file has been synced, so we

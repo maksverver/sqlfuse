@@ -200,7 +200,7 @@ static void reopen_readonly() {
 }
 
 static void update_contents(const char *path, const char *data, size_t size) {
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC);
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
   EXPECT(fd >= 0);
   EXPECT_EQ(write(fd, data, size), size);
   close(fd);
@@ -253,7 +253,7 @@ static void test_open_readonly() {
   update_contents(makepath("file"), "foo", 3);
 
   // Can't write to a file that's opened in readonly mode.
-  int fd = open(makepath("file"), O_RDONLY);
+  int fd = open(makepath("file"), O_RDONLY, 0666);
   EXPECT(fd >= 0);
   EXPECT_EQ(write(fd, "bar", 3), -1);
   EXPECT_EQ(errno, EBADF);
