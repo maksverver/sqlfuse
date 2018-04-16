@@ -1430,9 +1430,10 @@ int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mod
   if (name_kind(name) != NAME_REGULAR) {
     return EINVAL;
   }
-  if (mode > S_IFMT || !S_ISREG(mode)) {
+  if (mode != ((mode & 0777) | S_IFREG)) {
     return EINVAL;
   }
+  mode = (mode & 0777 & ~sqlfs->umask) | S_IFREG;
 
   sql_savepoint(sqlfs);
 

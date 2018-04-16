@@ -439,6 +439,36 @@ static void test_directory_close_before_end() {
   teardown();
 }
 
+static void test_mknod_invalid_modes() {
+  setup();
+
+  struct stat attr;
+  EXPECT_EQ(sqlfs_mknod(sqlfs, SQLFS_INO_ROOT, "foo", 01777 | S_IFREG, &attr), EINVAL);
+  EXPECT_EQ(sqlfs_mknod(sqlfs, SQLFS_INO_ROOT, "foo", 02777 | S_IFREG, &attr), EINVAL);
+  EXPECT_EQ(sqlfs_mknod(sqlfs, SQLFS_INO_ROOT, "foo", 04777 | S_IFREG, &attr), EINVAL);
+
+  teardown();
+}
+
+static void test_mknod_applies_umask() {
+  setup();
+
+  struct stat attr;
+  EXPECT_EQ(sqlfs_mknod(sqlfs, SQLFS_INO_ROOT, "foo", 0777 | S_IFREG, &attr), 0);
+  EXPECT_EQ(attr.st_mode, (0755 | S_IFREG));
+
+  teardown();
+}
+
+static void test_mkdir_applies_umask() {
+  setup();
+
+  struct stat attr;
+  EXPECT_EQ(sqlfs_mkdir(sqlfs, SQLFS_INO_ROOT, "foo", 0777, &attr), 0);
+  EXPECT_EQ(attr.st_mode, (0755 | S_IFDIR));
+
+  teardown();
+}
 
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
@@ -453,6 +483,9 @@ static const struct test_case tests[] = {
   TEST(directory_subdirectory),
   TEST(directory_start_in_middle),
   TEST(directory_close_before_end),
+  TEST(mknod_invalid_modes),
+  TEST(mknod_applies_umask),
+  TEST(mkdir_applies_umask),
 #undef TEST
   {NULL, NULL}};
 

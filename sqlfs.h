@@ -191,8 +191,9 @@ void sqlfs_dir_close(struct sqlfs *sqlfs);
 //
 // `dir_ino` refers to the existing directory in which the file will be created.
 // `name` contains the filename, which must be a valid regular file name.
-// `mode` contains the file mode. The file type bits must be S_IFREG. There is
-// no restriction on the permission bits.
+// `mode` contains the file mode. The file type bits must be S_IFREG. Permission
+// bits will be modified by the session's current umask. Sticky, setgid and setuid
+// bits are not supported.
 //
 // On success, the file metadata is written to *stat.
 //
@@ -200,7 +201,7 @@ void sqlfs_dir_close(struct sqlfs *sqlfs);
 //  0 on succes
 //  ENOENT if the directory does not exist
 //  ENOTDIR if `dir_ino` does not refer to a directory
-//  EINVAL if the given `name` is invalid, or `mode` is not a regular file mode
+//  EINVAL if the given `name` is invalid, or `mode` is not a valid file mode
 //  EIO if a database operation failed
 int sqlfs_mknod(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, mode_t mode, struct stat *stat);
 
