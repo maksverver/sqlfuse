@@ -2,12 +2,14 @@ Optional:
   - Think about a cool name & rebrand everything?
 
 Milestone 0.1.0:
-  - Add sqlfs_test: opendir()/readdir()/closedir() with various edge cases
+  - Fix inconsistency between sqlfs_mknod() and sqlfs_mkdir():
+      - mknod() should apply umask (as mkdir() already does)
+      - mknod() requires mode is a regular file, while mkdir()
+        simply does (mode & 0777 & S_IFDIR) to enforce it.
   - create a README with some information and usage notes.
     (This should contain everything which is currently spread over USAGE,
      NOTES, and TODO, though pure TODOs can stay in this file.)
      - document build depencies (FUSE 2.6, SQLCipher version X?)
-  - create Arch Linux BUILD file
 
 Milestone 1.0.0:
   - add a license (BSD-style, like SQLcipher? Check github for recommendation.)

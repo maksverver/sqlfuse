@@ -152,16 +152,15 @@ int sqlfs_rmdir(struct sqlfs *sqlfs, ino_t dir_ino, const char *name, ino_t *chi
 //
 //   struct sqlfs *sqlfs = ...;
 //   struct ino_t dir_ino = 1;
-//   struct sqlfs_dir *dir = sqlfs_dir_open(sqlfs, dir_ino, NULL);
 //
 //   const char *name;
 //   ino_t ino;
 //   mode_t mode;
-//   while (sqlfs_dir_next(dir, &name, &ino, &mode)) {
-//     printf("name=%s ino=%d mode=0%o\n", name, ino, mode);
+//   sqlfs_dir_open(sqlfs, dir_ino, NULL);
+//   while (sqlfs_dir_next(sqlfs, &name, &ino, &mode) == 0) {
+//     printf("name=%s ino=%d mode=0%o\n", name, (int)ino, mode);
 //   }
-//
-//   sqlfs_dir_close(dir);
+//   sqlfs_dir_close(sqlfs);
 //
 
 // Opens a directory for reading. `ino` must refer to a directory. `start_name`

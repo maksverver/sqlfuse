@@ -303,6 +303,143 @@ static void test_write_edgecases() {
   teardown();
 }
 
+static void verify_dir_next(const char *expected_name, ino_t expected_ino, mode_t expected_mode) {
+  const char *name = "?";
+  ino_t ino = -1;
+  mode_t mode = -1;
+
+  EXPECT_EQ(sqlfs_dir_next(sqlfs, &name, &ino, &mode), 0);
+
+  if (expected_name == NULL ? name != NULL : name == NULL || strcmp(expected_name, name) != 0) {
+    fprintf(stderr, "Assertion failed: dir_next() returned name=%s (expected: %s)\n",
+        name ? name : "NULL", expected_name ? expected_name : "NULL");
+    test_fail();
+  }
+  EXPECT_EQ(ino, expected_ino);
+  EXPECT_EQ(mode, expected_mode);
+}
+
+static void test_directory_empty() {
+  setup();
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, NULL);
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+  teardown();
+}
+
+static void test_directory_invalid_ino() {
+  const ino_t invalid_ino = 42;
+  setup();
+  sqlfs_dir_open(sqlfs, invalid_ino, NULL);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+  teardown();
+}
+
+static void test_directory_subdirectory() {
+  setup();
+
+  struct stat attr;
+  EXPECT_EQ(sqlfs_mkdir(sqlfs, SQLFS_INO_ROOT, "dir", 0777, &attr), 0);
+
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, NULL);
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next("dir", attr.st_ino, S_IFDIR);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  sqlfs_dir_open(sqlfs, attr.st_ino, NULL);
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  teardown();
+}
+
+static void test_directory_start_in_middle() {
+  setup();
+
+  struct stat attr;
+  EXPECT_EQ(sqlfs_mknod(sqlfs, SQLFS_INO_ROOT, "foo", 0600 | S_IFREG, &attr), 0);
+
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, NULL);
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next("foo", attr.st_ino, S_IFREG);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  // Start at "."
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, ".");
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next("foo", attr.st_ino, S_IFREG);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  // Start at ".."
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, "..");
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next("foo", attr.st_ino, S_IFREG);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  // Start at "a"
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, "a");
+  verify_dir_next("foo", attr.st_ino, S_IFREG);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  // Start at "foo"
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, "foo");
+  verify_dir_next("foo", attr.st_ino, S_IFREG);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  // Start at "z"
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, "z");
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  teardown();
+}
+
+static void test_directory_close_before_end() {
+  setup();
+
+  struct stat attr_a;
+  struct stat attr_b;
+  EXPECT_EQ(sqlfs_mknod(sqlfs, SQLFS_INO_ROOT, "a", 0600 | S_IFREG, &attr_a), 0);
+  EXPECT_EQ(sqlfs_mknod(sqlfs, SQLFS_INO_ROOT, "b", 0600 | S_IFREG, &attr_b), 0);
+
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, NULL);
+  sqlfs_dir_close(sqlfs);
+
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, NULL);
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  sqlfs_dir_close(sqlfs);
+
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, NULL);
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next("a", attr_a.st_ino, S_IFREG);
+  sqlfs_dir_close(sqlfs);
+
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, NULL);
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next("a", attr_a.st_ino, S_IFREG);
+  verify_dir_next("b", attr_b.st_ino, S_IFREG);
+  sqlfs_dir_close(sqlfs);
+
+  sqlfs_dir_open(sqlfs, SQLFS_INO_ROOT, NULL);
+  verify_dir_next("..", SQLFS_INO_ROOT, S_IFDIR);
+  verify_dir_next("a", attr_a.st_ino, S_IFREG);
+  verify_dir_next("b", attr_b.st_ino, S_IFREG);
+  verify_dir_next(NULL, SQLFS_INO_NONE, 0);
+  sqlfs_dir_close(sqlfs);
+
+  teardown();
+}
+
+
 static const struct test_case tests[] = {
 #define TEST(x) {#x, &test_##x}
   TEST(basic),
@@ -311,6 +448,11 @@ static const struct test_case tests[] = {
   TEST(blocksize),
   TEST(read),
   TEST(write_edgecases),
+  TEST(directory_empty),
+  TEST(directory_invalid_ino),
+  TEST(directory_subdirectory),
+  TEST(directory_start_in_middle),
+  TEST(directory_close_before_end),
 #undef TEST
   {NULL, NULL}};
 
