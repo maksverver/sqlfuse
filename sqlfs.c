@@ -912,6 +912,26 @@ static bool set_password(sqlite3 *db, const char *password, int kdf_iter) {
     return false;
   }
 
+  // Select parameters from SQLCipher version 3 for backward compatibilty
+  // when using SQLCipher version 4.
+  //
+  // Practically, this has the effect of selecting the following parameters:
+  //
+  // PRAGMA                    version 3 default   version 4 default
+  // ------------------------ ------------------ --------------------
+  // cipher_page_size                      1024                 4096
+  // kdf_iter                             64000               256000
+  // cipher_hmac_algorithm            HMAC_SHA1          HMAC_SHA256
+  // cipher_kdf_algorithm      PBKDF2_HMAC_SHA1   PBKDF2_HMAC_SHA512
+  //
+  // Note that the cipher_compatibility PRAGMA is supported since version 4
+  // only. Version 3 will ignore the PRAGMA, but use the correct defaults.
+  // Version 2 and below are not supported.
+  if (!exec_sql(db, "PRAGMA cipher_compatibility = 3")) {
+    return false;
+  }
+
+  // We support overriding kdf_iter to speed up tests only!
   if (kdf_iter > 0) {
     char buf[40];
     snprintf(buf, sizeof(buf), "PRAGMA kdf_iter = %d", kdf_iter);
@@ -920,15 +940,7 @@ static bool set_password(sqlite3 *db, const char *password, int kdf_iter) {
     }
   }
 
-  // cipher_page_size must be set immediately after setting the password.
-  // Large values make sequential reads/writes more efficient, but random
-  // access less efficient. Once the database is created, the cipher_page_size
-  // can never be changed, and the same value MUST be set explicitly every time
-  // it is opened!
-  //
-  // The default value is 1024. We use the same value, but set it explicitly, in
-  // case the default changes between different SQLCipher versions/builds.
-  return exec_sql(db, "PRAGMA cipher_page_size = 1024");
+  return true;
 }
 
 static bool validate_options(const struct sqlfs_options *options) {
