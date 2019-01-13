@@ -61,8 +61,8 @@
 // Minimum/maximum supported SQLCipher major version.
 //
 // The maximum is also capped by the current SQLCipher library version (see
-// get_sqlcipher_version()) so in principle we don't need the upper limit, but
-// this way we won't unintentionally create files incompatible with v4.
+// sqlfs_get_sqlcipher_version()) so in principle we don't need the upper limit,
+// but this way we won't unintentionally create files incompatible with v4.
 #define MIN_CIPHER_COMPAT 3
 #define MAX_CIPHER_COMPAT 4
 
@@ -243,12 +243,6 @@ struct sqlfs {
   bool wal_enabled;
 };
 
-struct sqlcipher_version {
-  int major;
-  int minor;
-  int patch;
-};
-
 enum name_kind { NAME_EMPTY, NAME_DOT, NAME_DOTDOT, NAME_REGULAR };
 
 // NOTE: this doesn't identify names containing a slash (which are invalid too).
@@ -353,8 +347,7 @@ static void sql_rollback_to_savepoint(struct sqlfs *sqlfs) {
   sqlite3_reset(stmt);
 }
 
-// Retrieves the runtime version number of the SQLCipher library.
-static bool get_sqlcipher_version(struct sqlcipher_version *result) {
+int sqlfs_get_sqlcipher_version(struct sqlcipher_version *result) {
   bool success = false;
   sqlite3 *db;
   CHECK(sqlite3_open(":memory:", &db) == SQLITE_OK);
@@ -362,22 +355,23 @@ static bool get_sqlcipher_version(struct sqlcipher_version *result) {
   CHECK(prepare(db, "PRAGMA cipher_version", &stmt));
   if (sqlite3_step(stmt) == SQLITE_ROW) {
     const char *text = (const char*)sqlite3_column_text(stmt, 0);
-    if (text != NULL && sscanf(text, "%d.%d.%d", &result->major, &result->minor, &result->patch) == 3) {
+    struct sqlcipher_version version = {0, 0, 0};
+    if (text != NULL && sscanf(text, "%d.%d.%d", &version.major, &version.minor, &version.patch) == 3) {
+      *result = version;
       success = true;
     }
     CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   }
   sqlite3_finalize(stmt);
   CHECK(sqlite3_close(db) == SQLITE_OK);
-  return success;
+  return success ? 0 : EIO;
 }
 
-// Retrieves the runtime version number of the SQLCipher library, like
-// get_sqlcipher_version() above, but returns `true` only if the major version
-// is at least MIN_CIPHER_COMPAT. Otherwise, it prints an error message and
-// returns false.
+// Retrieves the runtime version number of the SQLCipher library and returns
+// true if the major version is at least MIN_CIPHER_COMPAT. Otherwise, it
+// prints an error message and returns false.
 static bool get_supported_sqlcipher_version(struct sqlcipher_version *result) {
-  if (!get_sqlcipher_version(result)) {
+  if (sqlfs_get_sqlcipher_version(result) != 0) {
     return false;
   }
   if (result->major < MIN_CIPHER_COMPAT) {
@@ -1195,19 +1189,19 @@ int sqlfs_cipher_migrate(const char *filepath, const char *password) {
     return EINVAL;
   }
   struct sqlcipher_version sqlcipher_version;
-  if (!get_sqlcipher_version(&sqlcipher_version)) {
+  if (sqlfs_get_sqlcipher_version(&sqlcipher_version) != 0) {
     fprintf(stderr, "Failed to determine SQLCipher version.\n");
     return EIO;
   }
   if (sqlcipher_version.major <= MIN_CIPHER_COMPAT) {
     fprintf(stderr, "SQLCipher version (%d.%d%.d) too low (must be greater than %d).\n",
         sqlcipher_version.major, sqlcipher_version.minor, sqlcipher_version.patch, MIN_CIPHER_COMPAT);
-    return ENOSYS;
+    return ENOTSUP;
   }
   if (sqlcipher_version.major > MAX_CIPHER_COMPAT) {
     fprintf(stderr, "SQLCipher version (%d.%d%.d) too high (must be at most %d).\n",
         sqlcipher_version.major, sqlcipher_version.minor, sqlcipher_version.patch, MAX_CIPHER_COMPAT);
-    return ENOSYS;
+    return ENOTSUP;
   }
 
   bool success = false;

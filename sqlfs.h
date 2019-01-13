@@ -49,6 +49,18 @@ struct sqlfs_options {
   int kdf_iter;
 };
 
+struct sqlcipher_version {
+  int major;
+  int minor;
+  int patch;
+};
+
+// Retrieves the runtime version of the SQLCipher library.
+//
+// If the version could be retrieved, it is assigned to *result and 0 is
+// returned. Otherwise, EIO is returned.
+int sqlfs_get_sqlcipher_version(struct sqlcipher_version *result);
+
 // Creates a new filesystem at the given path.
 //
 // Returns 0 if the filesystem was created successfully, EINVAL if options is
@@ -69,7 +81,7 @@ struct sqlfs *sqlfs_open(enum sqlfs_open_mode mode,
 // Prints appropriate status/error messages during upgrade.
 //
 // Returns 0 if migration succeeded, EINVAL if `filepath` or `password` was
-// NULL, ENOSYS if the SQLCipher library version does not support migration, or
+// NULL, ENOTSUP if the SQLCipher library version does not support migration, or
 // EIO on any other failure.
 int sqlfs_cipher_migrate(const char *filepath, const char *password);
 

@@ -434,8 +434,11 @@ struct fuse_args alloc_fuse_args(int argc, char *argv[]) {
 }
 
 static void print_version() {
-  printf("%s version %d.%d.%d (database version %d)\n",
-      PROGRAM_NAME, SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFUSE_VERSION_PATCH, SQLFS_SCHEMA_VERSION);
+  struct sqlcipher_version sqlcipher_version = {0, 0, 0};
+  sqlfs_get_sqlcipher_version(&sqlcipher_version);
+  printf("%s version %d.%d.%d (database version %d) (SQLCipher version %d.%d.%d)\n",
+      PROGRAM_NAME, SQLFUSE_VERSION_MAJOR, SQLFUSE_VERSION_MINOR, SQLFUSE_VERSION_PATCH, SQLFS_SCHEMA_VERSION,
+      sqlcipher_version.major, sqlcipher_version.minor, sqlcipher_version.patch);
 }
 
 static int run_help() {
