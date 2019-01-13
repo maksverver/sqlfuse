@@ -354,8 +354,10 @@ static void sql_rollback_to_savepoint(struct sqlfs *sqlfs) {
 }
 
 // Retrieves the runtime version number of the SQLCipher library.
-static bool get_sqlcipher_version(sqlite3 *db, struct sqlcipher_version *result) {
+static bool get_sqlcipher_version(struct sqlcipher_version *result) {
   bool success = false;
+  sqlite3 *db;
+  CHECK(sqlite3_open(":memory:", &db) == SQLITE_OK);
   sqlite3_stmt *stmt = NULL;
   CHECK(prepare(db, "PRAGMA cipher_version", &stmt));
   if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -366,6 +368,7 @@ static bool get_sqlcipher_version(sqlite3 *db, struct sqlcipher_version *result)
     CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   }
   sqlite3_finalize(stmt);
+  CHECK(sqlite3_close(db) == SQLITE_OK);
   return success;
 }
 
@@ -373,8 +376,8 @@ static bool get_sqlcipher_version(sqlite3 *db, struct sqlcipher_version *result)
 // get_sqlcipher_version() above, but returns `true` only if the major version
 // is at least MIN_CIPHER_COMPAT. Otherwise, it prints an error message and
 // returns false.
-static bool get_supported_sqlcipher_version(sqlite3 *db, struct sqlcipher_version *result) {
-  if (!get_sqlcipher_version(db, result)) {
+static bool get_supported_sqlcipher_version(struct sqlcipher_version *result) {
+  if (!get_sqlcipher_version(result)) {
     return false;
   }
   if (result->major < MIN_CIPHER_COMPAT) {
@@ -1025,7 +1028,7 @@ int sqlfs_create(const struct sqlfs_options *options) {
     goto failure;
   }
   struct sqlcipher_version sqlcipher_version;
-  if (!get_supported_sqlcipher_version(db, &sqlcipher_version)) {
+  if (!get_supported_sqlcipher_version(&sqlcipher_version)) {
     goto failure;
   }
   int cipher_compat = int_min(MAX_CIPHER_COMPAT, sqlcipher_version.major);
@@ -1101,14 +1104,11 @@ struct sqlfs *sqlfs_open(enum sqlfs_open_mode mode,
   sqlfs->gid = options->gid;
   sqlfs->blocksize = 4096;  /* default Linux pagesize */
 
-  int open_flags = mode == SQLFS_OPEN_MODE_READONLY ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
-  if (sqlite3_open_v2(options->filepath, &sqlfs->db, open_flags, NULL) != SQLITE_OK) {
-    goto failure;
-  }
   struct sqlcipher_version sqlcipher_version;
-  if (!get_supported_sqlcipher_version(sqlfs->db, &sqlcipher_version)) {
+  if (!get_supported_sqlcipher_version(&sqlcipher_version)) {
     goto failure;
   }
+  int open_flags = mode == SQLFS_OPEN_MODE_READONLY ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE;
   // The database may have been created with older cypher parameters. For
   // backward compatibility, we'll try opening the database with decreasing
   // cipher_compat values. This means opening older databases will be slower,
@@ -1117,7 +1117,10 @@ struct sqlfs *sqlfs_open(enum sqlfs_open_mode mode,
   CHECK(max_cipher_compat >= MIN_CIPHER_COMPAT);
   int cipher_compat = max_cipher_compat;
   int64_t user_version = -1;
-try_password:
+try_open:
+  if (sqlite3_open_v2(options->filepath, &sqlfs->db, open_flags, NULL) != SQLITE_OK) {
+    goto failure;
+  }
   if (!set_password(sqlfs->db, options->password, options->kdf_iter, cipher_compat)) {
     goto failure;
   }
@@ -1133,11 +1136,8 @@ try_password:
     // Re-open the database to retry with a lower cipher compatibility level.
     CHECK(sqlite3_close(sqlfs->db) == SQLITE_OK);
     sqlfs->db = NULL;
-    if (sqlite3_open_v2(options->filepath, &sqlfs->db, open_flags, NULL) != SQLITE_OK) {
-      goto failure;
-    }
     --cipher_compat;
-    goto try_password;
+    goto try_open;
   }
   if (status != SQLITE_ROW) {
     // Some non-retryable error occurred. Report it.
