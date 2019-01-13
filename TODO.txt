@@ -1,7 +1,5 @@
 Optional:
   - Think about a cool name & rebrand everything?
-  - Support in-place upgrading from v3 to v4
-    https://github.com/maksverver/sqlfuse/issues/1
 
 Milestone 0.1.0:
   - create a README with some information and usage notes.

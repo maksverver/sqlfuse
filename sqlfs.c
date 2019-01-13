@@ -1151,10 +1151,10 @@ try_open:
     goto failure;
   }
   if (cipher_compat < max_cipher_compat) {
-    // TODO: add message like "run `sqlfuse upgrade` to upgrade the filesystem database" once
-    // upgrading the database is supported!
     fprintf(stderr,
-        "WARNING: database was opened with SQLCipher version %d compatibility (current version: %d)!\n",
+        "NOTICE: Database was opened with SQLCipher version %d compatibility.\n"
+        "        The current SQLCipher library has major version %d.\n"
+        "        Run `sqlfuse cipher_migrate` to migrate the database.\n",
         cipher_compat, max_cipher_compat);
   }
   if (!enable_exclusive(sqlfs->db) || !enable_secure_delete(sqlfs->db)) {
@@ -1188,6 +1188,55 @@ try_open:
 failure:
   sqlfs_close(sqlfs);
   return NULL;
+}
+
+int sqlfs_cipher_migrate(const char *filepath, const char *password) {
+  if (filepath == NULL || password == NULL) {
+    return EINVAL;
+  }
+  struct sqlcipher_version sqlcipher_version;
+  if (!get_sqlcipher_version(&sqlcipher_version)) {
+    fprintf(stderr, "Failed to determine SQLCipher version.\n");
+    return EIO;
+  }
+  if (sqlcipher_version.major <= MIN_CIPHER_COMPAT) {
+    fprintf(stderr, "SQLCipher version (%d.%d%.d) too low (must be greater than %d).\n",
+        sqlcipher_version.major, sqlcipher_version.minor, sqlcipher_version.patch, MIN_CIPHER_COMPAT);
+    return ENOSYS;
+  }
+  if (sqlcipher_version.major > MAX_CIPHER_COMPAT) {
+    fprintf(stderr, "SQLCipher version (%d.%d%.d) too high (must be at most %d).\n",
+        sqlcipher_version.major, sqlcipher_version.minor, sqlcipher_version.patch, MAX_CIPHER_COMPAT);
+    return ENOSYS;
+  }
+
+  bool success = false;
+  sqlite3 *db = NULL;
+  // Database must be opened with mode SQLITE_OPEN_CREATE (even though the file
+  // should already exist) or the migration will fail.
+  if (sqlite3_open_v2(filepath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL) != SQLITE_OK) {
+    fprintf(stderr, "Failed to open database file in read/write mode.\n");
+  } else if (sqlite3_key(db, password, strlen(password)) != SQLITE_OK) {
+    fprintf(stderr, "Failed to set password.\n");
+  } else {
+    fprintf(stderr, "Migrating to SQLCipher version %d. Please wait...\n", sqlcipher_version.major);
+    sqlite3_stmt *stmt = NULL;
+    CHECK(prepare(db, "PRAGMA cipher_migrate", &stmt));
+    int migrate_result = -1;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      migrate_result = sqlite3_column_int(stmt, 0);
+      CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+    }
+    sqlite3_finalize(stmt);
+    if (migrate_result != 0) {
+      fprintf(stderr, "Migration failed! Was the password correct?\n");
+    } else {
+      fprintf(stderr, "Migration completed succesfully!\n");
+      success = true;
+    }
+  }
+  CHECK(sqlite3_close(db) == SQLITE_OK);
+  return success ? 0 : EIO;
 }
 
 void sqlfs_close(struct sqlfs *sqlfs) {

@@ -185,4 +185,19 @@ sqlfuse mount --insecure_password=test -s testdata/v3.db "${MNTDIR}" -o ro
 test "$(cat "${MNTDIR}/hello.txt")" = 'Hello, world!'
 fusermount -u "${MNTDIR}"
 
+#
+# Backward compatibility: migrate v3 to v4.
+#
+
+cp testdata/v3.db "${DBFILE}"
+if ! sqlfuse cipher_migrate --insecure_password=test "${DBFILE}"; then
+  # If we're using SQLCipher v3, then we cannot migrate to v4.
+  # If migration fails for this reason, we won't consider than a test failure.
+  sqlfuse cipher_migrate --insecure_password=test "${DBFILE}" 2>&1 | grep -q 'SQLCipher version .* too low'
+else
+  sqlfuse mount --insecure_password=test -s "${DBFILE}" "${MNTDIR}" -o ro
+  test "$(cat "${MNTDIR}/hello.txt")" = 'Hello, world!'
+  fusermount -u "${MNTDIR}"
+fi
+
 echo 'All tests passed.'

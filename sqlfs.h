@@ -63,6 +63,16 @@ int sqlfs_create(const struct sqlfs_options *options);
 struct sqlfs *sqlfs_open(enum sqlfs_open_mode mode,
     const struct sqlfs_options *options);
 
+// Upgrades the cipher parameters for a SQLCipher database to the latest
+// version supported.
+//
+// Prints appropriate status/error messages during upgrade.
+//
+// Returns 0 if migration succeeded, EINVAL if `filepath` or `password` was
+// NULL, ENOSYS if the SQLCipher library version does not support migration, or
+// EIO on any other failure.
+int sqlfs_cipher_migrate(const char *filepath, const char *password);
+
 // Releases the filesystem state. Afterwards, the state should not be used.
 // `sqlfs` may be NULL. In that case, calling this function has no effect.
 void sqlfs_close(struct sqlfs *sqlfs);

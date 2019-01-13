@@ -447,6 +447,7 @@ static int run_help() {
       "    sqlfuse rekey <database>\n"
       "    sqlfuse compact [-n|--no_password] <database>\n"
       "    sqlfuse check [-n|--no_password] <database>\n"
+      "    sqlfuse cipher_migrate <database>\n"
       "\n"
       "Mount options:\n"
       "    -n|--no_password  Create or open an unencrypted database.\n"
@@ -731,6 +732,22 @@ static int run_check(int argc, char *argv[]) {
   return 1;
 }
 
+static int run_cipher_migrate(int argc, char *argv[]) {
+  struct args args = {0};
+  if (!parse_args(&argc, argv, ARG_PLAINTEXT_PASSWORD, &args)) {
+    return 1;
+  }
+  const char *database = get_database_argument(argc, argv, true /* must_exist */);
+  if (database == NULL) {
+    return 1;
+  }
+  char *password = args.insecure_password ? args.insecure_password : get_password();
+  if (password == NULL) {
+    return 1;
+  }
+  return sqlfs_cipher_migrate(database, password);
+}
+
 static void parse_common_args(int *argc, char *argv[]) {
   int i = 1, j = 1, n = *argc;
   for (; i < n; ++i) {
@@ -773,6 +790,10 @@ int main(int argc, char *argv[]) {
 
   if (strcmp(command, "check") == 0) {
     return run_check(argc, argv);
+  }
+
+  if (strcmp(command, "cipher_migrate") == 0) {
+    return run_cipher_migrate(argc, argv);
   }
 
   if (strcmp(command, "help") == 0) {

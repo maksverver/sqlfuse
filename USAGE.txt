@@ -110,6 +110,15 @@ sqlfuse check [options] <database>
   it will warn if it encounters any errors, but will not attempt to fix them.
 
 
+sqlfuse cipher_migrate <database>
+
+  --insecure_password=...  Password to use (INSECURE).
+
+  Upgrades the filesystem database to the latest supported SQLCipher version.
+  This will make the file incompatible with older versions of SQLCipher.
+  Migration may take a long time to complete (depending on the database size).
+
+
 All commands that take passwords also support the following option:
 
   --askpass=command
