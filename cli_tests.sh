@@ -177,4 +177,12 @@ verify_files "${MNTDIR}"
 fusermount -u "${MNTDIR}"
 rm "${DBFILE}"
 
+#
+# Backward compatibility: test opening v3 database.
+#
+
+sqlfuse mount --insecure_password=test -s testdata/v3.db "${MNTDIR}" -o ro
+test "$(cat "${MNTDIR}/hello.txt")" = 'Hello, world!'
+fusermount -u "${MNTDIR}"
+
 echo 'All tests passed.'

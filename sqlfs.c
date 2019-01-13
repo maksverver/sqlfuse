@@ -58,6 +58,14 @@
 
 #define NANOS_PER_SECOND 1000000000
 
+// Minimum/maximum supported SQLCipher major version.
+//
+// The maximum is also capped by the current SQLCipher library version (see
+// get_sqlcipher_version()) so in principle we don't need the upper limit, but
+// this way we won't unintentionally create files incompatible with v4.
+#define MIN_CIPHER_COMPAT 3
+#define MAX_CIPHER_COMPAT 4
+
 enum statements {
   STMT_SAVEPOINT,
   STMT_RELEASE_SAVEPOINT,
@@ -235,6 +243,12 @@ struct sqlfs {
   bool wal_enabled;
 };
 
+struct sqlcipher_version {
+  int major;
+  int minor;
+  int patch;
+};
+
 enum name_kind { NAME_EMPTY, NAME_DOT, NAME_DOTDOT, NAME_REGULAR };
 
 // NOTE: this doesn't identify names containing a slash (which are invalid too).
@@ -246,6 +260,10 @@ static enum name_kind name_kind(const char *name) {
   if (name[1] != '.') return NAME_REGULAR;
   if (name[2] == '\0') return NAME_DOTDOT;
   return NAME_REGULAR;
+}
+
+static int int_min(int x, int y) {
+  return x < y ? x : y;
 }
 
 static int64_t int64_min(int64_t x, int64_t y) {
@@ -335,16 +353,53 @@ static void sql_rollback_to_savepoint(struct sqlfs *sqlfs) {
   sqlite3_reset(stmt);
 }
 
-static int64_t get_user_version(sqlite3 *db) {
-  int64_t result = -1;
+// Retrieves the runtime version number of the SQLCipher library.
+static bool get_sqlcipher_version(sqlite3 *db, struct sqlcipher_version *result) {
+  bool success = false;
   sqlite3_stmt *stmt = NULL;
-  CHECK(prepare(db, "PRAGMA user_version", &stmt));
+  CHECK(prepare(db, "PRAGMA cipher_version", &stmt));
   if (sqlite3_step(stmt) == SQLITE_ROW) {
-    result = sqlite3_column_int64(stmt, 0);
+    const char *text = (const char*)sqlite3_column_text(stmt, 0);
+    if (text != NULL && sscanf(text, "%d.%d.%d", &result->major, &result->minor, &result->patch) == 3) {
+      success = true;
+    }
     CHECK(sqlite3_step(stmt) == SQLITE_DONE);
   }
   sqlite3_finalize(stmt);
-  return result;
+  return success;
+}
+
+// Retrieves the runtime version number of the SQLCipher library, like
+// get_sqlcipher_version() above, but returns `true` only if the major version
+// is at least MIN_CIPHER_COMPAT. Otherwise, it prints an error message and
+// returns false.
+static bool get_supported_sqlcipher_version(sqlite3 *db, struct sqlcipher_version *result) {
+  if (!get_sqlcipher_version(db, result)) {
+    return false;
+  }
+  if (result->major < MIN_CIPHER_COMPAT) {
+    fprintf(stderr, "Unsupported SQLCipher version: %d.%d.%d (minimum: %d.0.0)\n",
+        result->major, result->minor, result->patch, MIN_CIPHER_COMPAT);
+    return false;
+  }
+  return true;
+}
+
+static int get_user_version_with_status(sqlite3 *db, int64_t *result) {
+  sqlite3_stmt *stmt = NULL;
+  CHECK(prepare(db, "PRAGMA user_version", &stmt));
+  int status = sqlite3_step(stmt);
+  if (status == SQLITE_ROW) {
+    *result = sqlite3_column_int64(stmt, 0);
+    CHECK(sqlite3_step(stmt) == SQLITE_DONE);
+  }
+  sqlite3_finalize(stmt);
+  return status;
+}
+
+static int64_t get_user_version(sqlite3 *db) {
+  int64_t result;
+  return get_user_version_with_status(db, &result) == SQLITE_ROW ? result : -1;
 }
 
 static struct timespec current_timespec() {
@@ -900,11 +955,11 @@ static bool disable_wal(sqlite3 *db) {
 // Sets the encryption parameters (password and cipher page size) of the
 // database. This must be done immediately after opening the database.
 // If password == NULL, this function does nothing but returns true.
-static bool set_password(sqlite3 *db, const char *password, int kdf_iter) {
+static bool set_password(sqlite3 *db, const char *password, int kdf_iter, int cipher_compatibility) {
   if (password == NULL) {
     return true;
   }
-  if (kdf_iter < 0) {
+  if (kdf_iter < 0 || cipher_compatibility < MIN_CIPHER_COMPAT) {
     return false;
   }
 
@@ -927,13 +982,14 @@ static bool set_password(sqlite3 *db, const char *password, int kdf_iter) {
   // Note that the cipher_compatibility PRAGMA is supported since version 4
   // only. Version 3 will ignore the PRAGMA, but use the correct defaults.
   // Version 2 and below are not supported.
-  if (!exec_sql(db, "PRAGMA cipher_compatibility = 3")) {
+  char buf[64];
+  snprintf(buf, sizeof(buf), "PRAGMA cipher_compatibility = %d", cipher_compatibility);
+  if (!exec_sql(db, buf)) {
     return false;
   }
 
   // We support overriding kdf_iter to speed up tests only!
   if (kdf_iter > 0) {
-    char buf[40];
     snprintf(buf, sizeof(buf), "PRAGMA kdf_iter = %d", kdf_iter);
     if (!exec_sql(db, buf)) {
       return false;
@@ -968,16 +1024,21 @@ int sqlfs_create(const struct sqlfs_options *options) {
   if (sqlite3_open_v2(options->filepath, &db, open_flags, NULL) != SQLITE_OK) {
     goto failure;
   }
-  if (!set_password(db, options->password, options->kdf_iter)) {
+  struct sqlcipher_version sqlcipher_version;
+  if (!get_supported_sqlcipher_version(db, &sqlcipher_version)) {
+    goto failure;
+  }
+  int cipher_compat = int_min(MAX_CIPHER_COMPAT, sqlcipher_version.major);
+  if (!set_password(db, options->password, options->kdf_iter, cipher_compat)) {
     goto failure;
   }
   if (!enable_exclusive(db) || !enable_secure_delete(db) || !enable_wal(db)) {
     goto failure;
   }
 
-  int64_t version = get_user_version(db);
-  if (version != 0) {
-    fprintf(stderr, "Wrong schema version: %lld (expected 0)\n", (long long)version);
+  int64_t user_version = get_user_version(db);
+  if (user_version != 0) {
+    fprintf(stderr, "Wrong schema version: %lld (expected 0)\n", (long long)user_version);
     goto failure;
   }
 
@@ -1044,36 +1105,57 @@ struct sqlfs *sqlfs_open(enum sqlfs_open_mode mode,
   if (sqlite3_open_v2(options->filepath, &sqlfs->db, open_flags, NULL) != SQLITE_OK) {
     goto failure;
   }
-  if (!set_password(sqlfs->db, options->password, options->kdf_iter)) {
+  struct sqlcipher_version sqlcipher_version;
+  if (!get_supported_sqlcipher_version(sqlfs->db, &sqlcipher_version)) {
     goto failure;
   }
-
+  // The database may have been created with older cypher parameters. For
+  // backward compatibility, we'll try opening the database with decreasing
+  // cipher_compat values. This means opening older databases will be slower,
+  // but at least it works.
+  int max_cipher_compat = int_min(MAX_CIPHER_COMPAT, sqlcipher_version.major);
+  CHECK(max_cipher_compat >= MIN_CIPHER_COMPAT);
+  int cipher_compat = max_cipher_compat;
+  int64_t user_version = -1;
+try_password:
+  if (!set_password(sqlfs->db, options->password, options->kdf_iter, cipher_compat)) {
+    goto failure;
+  }
   // First, get the database schema version. Since this is the first query we
   // do, this is likely to fail if the database is locked or encrypted in an
-  // incompatable way, so we'll execute the query manually (instead of simply
-  // calling get_user_version()) and print a helpful error message for some of
-  // the most common failure reasons.
-  int64_t version = -1;
-  {
-    sqlite3_stmt *stmt = NULL;
-    CHECK(prepare(sqlfs->db, "PRAGMA user_version", &stmt));
-    int status = sqlite3_step(stmt);
-    if (status == SQLITE_ROW) {
-      version = sqlite3_column_int64(stmt, 0);
-      CHECK(sqlite3_step(stmt) == SQLITE_DONE);
-    } else {
-      fprintf(stderr, "Failed to query database version: %s!\n", sqlite3_errmsg(sqlfs->db));
-      if (status == SQLITE_BUSY || status == SQLITE_LOCKED) {
-        fprintf(stderr, "Database may be in use by another process.\n");
-      }
-      if (status == SQLITE_NOTADB) {
-        fprintf(stderr, "Database may be encrypted with a different password.\n");
-      }
-    }
-    sqlite3_finalize(stmt);
-    if (status != SQLITE_ROW) {
+  // incompatible way, so we'll check the status (instead of simply calling
+  // get_user_version()) and print a helpful error message for some of the
+  // most common failure reasons.
+  int status = get_user_version_with_status(sqlfs->db, &user_version);
+  if (status == SQLITE_NOTADB && cipher_compat > MIN_CIPHER_COMPAT) {
+    // File format not recognized! This commonly happens because the password
+    // is wrong, or the database was created with different cipher parameters.
+    // Re-open the database to retry with a lower cipher compatibility level.
+    CHECK(sqlite3_close(sqlfs->db) == SQLITE_OK);
+    sqlfs->db = NULL;
+    if (sqlite3_open_v2(options->filepath, &sqlfs->db, open_flags, NULL) != SQLITE_OK) {
       goto failure;
     }
+    --cipher_compat;
+    goto try_password;
+  }
+  if (status != SQLITE_ROW) {
+    // Some non-retryable error occurred. Report it.
+    fprintf(stderr, "Failed to query database version: %s!\n", sqlite3_errmsg(sqlfs->db));
+    if (status == SQLITE_BUSY || status == SQLITE_LOCKED) {
+      fprintf(stderr, "Database may be in use by another process.\n");
+    }
+    if (status == SQLITE_NOTADB) {
+      fprintf(stderr, "Database may be encrypted with a different password.\n");
+    }
+    goto failure;
+  }
+  if (cipher_compat < max_cipher_compat) {
+    // TODO: add message like "run `sqlfuse upgrade` to upgrade the filesystem database" once
+    // upgrading the database is supported!
+    fprintf(stderr,
+        "WARNING: database was opened with SQLCipher version %d compatibility (current version: %d)!\n",
+        cipher_compat, max_cipher_compat);
   }
   if (!enable_exclusive(sqlfs->db) || !enable_secure_delete(sqlfs->db)) {
     goto failure;
@@ -1090,8 +1172,8 @@ struct sqlfs *sqlfs_open(enum sqlfs_open_mode mode,
     sqlfs->wal_enabled = true;
   }
 
-  if (version != SQLFS_SCHEMA_VERSION) {
-    fprintf(stderr, "Wrong schema version number: %lld (expected %d)\n", (long long)version, SQLFS_SCHEMA_VERSION);
+  if (user_version != SQLFS_SCHEMA_VERSION) {
+    fprintf(stderr, "Wrong schema version number: %lld (expected %d)\n", (long long)user_version, SQLFS_SCHEMA_VERSION);
     goto failure;
   }
 
