@@ -35,6 +35,9 @@ Maybe later:
   - Transparent compression of file data? Or maybe this can be implemented on a
     lower level (compressing the database file itself)?
   - Consider running `PRAGMA optimize` before/after `VACUUM` during compaction.
+  - During compaction, consider rewriting large files using a larger blocksize.
+    This could reduce the filesize overhead from ~13% with 4 KiB blocks to ~3%
+    with 40 KiB blocks.
 
 Decisions to document somewhere:
   - No multithreading support. It complicates everything, is not immediately

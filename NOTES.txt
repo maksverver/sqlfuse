@@ -20,3 +20,9 @@ Performance note:
  - Writing of large files seems to be very slow. This is probably because FUSE
    splits writes into small chunks, and sqlfs will commit every write to disk
    individually, which is very slow. On the upside: reads are very fast.
+ - Currently, sqlfuse uses a 4096 byte blocksize by default (which matches the
+   typical Linux pagesize, and seems to match the size of writes from FUSE).
+   This performs well, but incurs a ~13% filesize overhead (i.e., a database
+   is about 13% larger than the files it contains; more if the files are small).
+   A large blocksize would be more space efficient but reduces write performance
+   in practice.
