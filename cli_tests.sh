@@ -24,6 +24,19 @@ if [ ! -x "${FUSERMOUNT}" ]; then
   exit 1
 fi
 
+function mount() {
+  CHILD_PID=$(${SQLFUSE} mount --print_pid "$@")
+}
+
+function unmount() {
+  fusermount -u "$1"
+  # fusermount sends a signal to the child process, but does not wait for it to
+  # exit. This causes a race condition where the database may still be locked if
+  # we try to re-open it immediately after fusermount returns. The command below
+  # waits for the child process to exit, which means it has released its locks.
+  tail --pid=${CHILD_PID} -f /dev/null
+}
+
 function fusermount() {
   "${FUSERMOUNT}" "$@"
 }
@@ -35,7 +48,7 @@ function cleanup() {
   for dir in "${MNTDIR}" "${MNTDIR2}"; do
     if [ -d "${dir}" ]; then
       if mountpoint -q "${dir}"; then
-        fusermount -u "${dir}" || echo "Couldn't unmount ${dir}"
+        unmount "${dir}" || echo "Couldn't unmount ${dir}"
       fi
       rmdir "${dir}" || echo "Couldn't remove mount dir ${dir}"
     fi
@@ -76,7 +89,7 @@ echo 'Testing without a password.'
 sqlfuse create --no_password "${DBFILE}"
 
 # Mount it
-sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR}"
+mount --no_password -s "${DBFILE}" "${MNTDIR}"
 mountpoint -q "${MNTDIR}"
 
 # Fill it with some test files
@@ -84,7 +97,7 @@ create_files "${MNTDIR}"
 verify_files "${MNTDIR}"
 
 # Unmount should work
-fusermount -u "${MNTDIR}"
+unmount "${MNTDIR}"
 ! mountpoint -q "${MNTDIR}"
 test ! -e "${MNTDIR}"/dir
 test ! -e "${MNTDIR}"/empty
@@ -93,26 +106,26 @@ test ! -e "${MNTDIR}"/empty
 sqlfuse compact --no_password "${DBFILE}"
 
 # Remount readonly. Files should still be there.
-sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR}" -o ro
+mount --no_password -s "${DBFILE}" "${MNTDIR}" -o ro
 verify_files "${MNTDIR}"
 ! touch "${MNTDIR}/newfile" 2>/dev/null
 
 # Can mount the DB twice in readonly mode.
-sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR2}" -o ro
+mount --no_password -s "${DBFILE}" "${MNTDIR2}" -o ro
 mountpoint -q "${MNTDIR2}"
 verify_files "${MNTDIR2}"
-fusermount -u "${MNTDIR2}"
+unmount "${MNTDIR2}"
 
 # Cannot mount a second time in writable mode.
-! sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+! mount --no_password -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
 ! mountpoint -q "${MNTDIR2}"
 
-fusermount -u "${MNTDIR}"
+unmount "${MNTDIR}"
 
 # Cannot mount twice in writable  mode.
-sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR}"
-! sqlfuse mount --no_password -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
-fusermount -u "${MNTDIR}"
+mount --no_password -s "${DBFILE}" "${MNTDIR}"
+! mount --no_password -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+unmount "${MNTDIR}"
 
 rm "${DBFILE}"
 
@@ -125,7 +138,7 @@ echo 'Testing with a password.'
 sqlfuse create --insecure_password=password1 "${DBFILE}"
 
 # Mount it
-sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}"
+mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}"
 mountpoint -q "${MNTDIR}"
 
 # Fill it with some test files
@@ -133,7 +146,7 @@ create_files "${MNTDIR}"
 verify_files "${MNTDIR}"
 
 # Unmount should work
-fusermount -u "${MNTDIR}"
+unmount "${MNTDIR}"
 ! mountpoint -q "${MNTDIR}"
 test ! -e "${MNTDIR}"/dir
 test ! -e "${MNTDIR}"/empty
@@ -143,47 +156,47 @@ test ! -e "${MNTDIR}"/empty
 sqlfuse compact --insecure_password=password1 "${DBFILE}"
 
 # Remount readonly. Files should still be there.
-sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}" -o ro
+mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}" -o ro
 verify_files "${MNTDIR}"
 ! touch "${MNTDIR}/newfile" 2>/dev/null
 
 # Can mount the DB twice in readonly mode.
-sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" -o ro
+mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" -o ro
 mountpoint -q "${MNTDIR2}"
 verify_files "${MNTDIR2}"
-fusermount -u "${MNTDIR2}"
+unmount "${MNTDIR2}"
 
 # Cannot mount a second time in writable mode.
-! sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+! mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
 ! mountpoint -q "${MNTDIR2}"
 
-fusermount -u "${MNTDIR}"
+unmount "${MNTDIR}"
 
 # Cannot mount twice in writable mode
-sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}"
-! sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
-fusermount -u "${MNTDIR}"
+mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}"
+! mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR2}" 2>/dev/null
+unmount "${MNTDIR}"
 
 # Rekey.
 ! sqlfuse rekey --old_insecure_password=wrong --new_insecure_password=irrelevant "${DBFILE}" 2>/dev/null
 sqlfuse rekey --old_insecure_password=password1 --new_insecure_password=password2 "${DBFILE}"
 
 # Remount after rekeying.
-! sqlfuse mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}" 2>/dev/null
-sqlfuse mount --insecure_password=password2 -s "${DBFILE}" "${MNTDIR}"
+! mount --insecure_password=password1 -s "${DBFILE}" "${MNTDIR}" 2>/dev/null
+mount --insecure_password=password2 -s "${DBFILE}" "${MNTDIR}"
 mountpoint -q "${MNTDIR}"
 verify_files "${MNTDIR}"
 
-fusermount -u "${MNTDIR}"
+unmount "${MNTDIR}"
 rm "${DBFILE}"
 
 #
 # Backward compatibility: test opening v3 database.
 #
 
-sqlfuse mount --insecure_password=test -s testdata/v3.db "${MNTDIR}" -o ro
+mount --insecure_password=test -s testdata/v3.db "${MNTDIR}" -o ro
 test "$(cat "${MNTDIR}/hello.txt")" = 'Hello, world!'
-fusermount -u "${MNTDIR}"
+unmount "${MNTDIR}"
 
 #
 # Backward compatibility: migrate v3 to v4.
@@ -195,9 +208,9 @@ if ! sqlfuse cipher_migrate --insecure_password=test "${DBFILE}"; then
   # If migration fails for this reason, we won't consider than a test failure.
   sqlfuse cipher_migrate --insecure_password=test "${DBFILE}" 2>&1 | grep -q 'SQLCipher version .* too low'
 else
-  sqlfuse mount --insecure_password=test -s "${DBFILE}" "${MNTDIR}" -o ro
+  mount --insecure_password=test -s "${DBFILE}" "${MNTDIR}" -o ro
   test "$(cat "${MNTDIR}/hello.txt")" = 'Hello, world!'
-  fusermount -u "${MNTDIR}"
+  unmount "${MNTDIR}"
 fi
 
 echo 'All tests passed.'

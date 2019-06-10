@@ -226,6 +226,7 @@ struct mount_args {
   bool help;
   bool version;
   bool no_password;
+  bool print_pid;
   bool readonly;
   bool debug;
   bool have_fsname;
@@ -242,8 +243,11 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
     .help = false,
     .version = false,
     .no_password = false,
+    .print_pid = false,
     .readonly = false,
     .debug = false,
+    .have_fsname = false,
+    .have_subtype = false,
     .filepath = NULL,
     .insecure_password = NULL };
   const int n = *argc;
@@ -253,6 +257,8 @@ struct mount_args extract_mount_arguments(int *argc, char **argv) {
     char *arg = argv[i];
     if (strcmp(arg, "-n") == 0 || strcmp(arg, "--no_password") == 0) {
       args.no_password = true;
+    } else if (strcmp(arg, "--print_pid") == 0) {
+      args.print_pid = true;
     } else if (arg[0] != '-' && args.filepath == NULL) {
       args.filepath = arg;
     } else if (starts_with(arg, "--insecure_password=")) {
@@ -613,6 +619,9 @@ static int run_mount(int argc, char *argv[]) {
       status = 1;
     }
     close(pipefds[0]);
+    if (args.print_pid) {
+      printf("%d\n", (int)child_pid);
+    }
     return status;
   }
 }

@@ -55,7 +55,7 @@ sqlfuse help
 
 sqlfuse create [options] <database>
 
-  -n  --no_password         Create an unencrypted database without a password.
+  -n  --no_password        Create an unencrypted database without a password.
   --insecure_password=...  Password to use (INSECURE).
 
   Prompts for a new password, unless -n or --insecure_password is specified.
@@ -63,8 +63,9 @@ sqlfuse create [options] <database>
 
 sqlfuse mount [options] <database> <mountpoint> [FUSE options]
 
-  -n  --no_password         Mount an unencrypted database without a password.
+  -n  --no_password        Mount an unencrypted database without a password.
   --insecure_password=...  Password to use (INSECURE).
+  --print_pid              Prints background process PID for use in tests.
 
   Prompts for a password, unless -n or --insecure_password is specified.
 
