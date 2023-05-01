@@ -15,14 +15,22 @@ database file itself, but also write (and execute) permission on the directory.
 The reason is that SQLite will create temporary files (such as journals) while
 executing database transactions.
 
-Performance note:
+Performance notes:
 
- - Writing of large files seems to be very slow. This is probably because FUSE
-   splits writes into small chunks, and sqlfs will commit every write to disk
-   individually, which is very slow. On the upside: reads are very fast.
+ - Writing of large files is relatively slow (~25 MB/s), probably because the
+   Linux kernel writes data in chunks of 128 kilobytes (with -o big_writes,
+   which is set in main.c), and sqlite will sync to disk after every
+   transaction.
+
+   Maybe it's worth experimenting with setting "PRAGMA synchronous = off"
+   (see sqlfs.c) and relying on the FUSE fsync() calls to force syncing to disk
+   instead?
+
  - Currently, sqlfuse uses a 4096 byte blocksize by default (which matches the
-   typical Linux pagesize, and seems to match the size of writes from FUSE).
-   This performs well, but incurs a ~13% filesize overhead (i.e., a database
-   is about 13% larger than the files it contains; more if the files are small).
-   A large blocksize would be more space efficient but reduces write performance
-   in practice.
+   typical Linux pagesize). This performs well, but incurs a ~13% filesize
+   overhead (i.e., a database is about 13% larger than the files it contains;
+   more if the files are small).
+
+   I should try to raise the block size to 128 kilobyte instead, to match the
+   FUSE write size, which would improve space efficiency a lot, but I should
+   test that it doesn't reduce write performance in practice.

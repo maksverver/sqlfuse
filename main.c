@@ -561,6 +561,9 @@ static int run_mount(int argc, char *argv[]) {
     // Set the filesystem subtype. This shows up as the third field in mount.
     fuse_opt_add_arg(&fuse_args, "-osubtype=" PROGRAM_NAME);
   }
+  // Opt into bigger writes (128 KiB instead of the default 4 KiB) since sqlfs
+  // supports this just fine, and it improves performance about 2.5x.
+  fuse_opt_add_arg(&fuse_args, "-obig_writes");
 
   char *mountpoint = NULL;
   int multithreaded = 0;
