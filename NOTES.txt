@@ -24,7 +24,11 @@ Performance notes:
 
    Maybe it's worth experimenting with setting "PRAGMA synchronous = off"
    (see sqlfs.c) and relying on the FUSE fsync() calls to force syncing to disk
-   instead?
+   instead? (Initial experiments suggest this doesn't help much.)
+
+   Another optimization: currently appending to files works by first extending
+   the file with zeros to the new size, and then overwriting those with the
+   actual data. Writing the new bytes directly could be up to twice as fast.
 
  - Currently, sqlfuse uses a 4096 byte blocksize by default (which matches the
    typical Linux pagesize). This performs well, but incurs a ~13% filesize
@@ -34,3 +38,10 @@ Performance notes:
    I should try to raise the block size to 128 kilobyte instead, to match the
    FUSE write size, which would improve space efficiency a lot, but I should
    test that it doesn't reduce write performance in practice.
+
+   Initial experiments suggest this makes random 1-byte reads/writes *much*
+   slower, presumably because much more data needs to be decrypted/encrypted.
+
+   I tried to mitigate this by using the SQLite BLOB I/O API to access only
+   the part of the block I need (see branch blobio), but this doesn't seem to
+   help. Not sure why! (Reference: https://www.sqlite.org/c3ref/blob_open.html)
