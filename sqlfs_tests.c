@@ -52,6 +52,25 @@ static void global_teardown() {
   database = NULL;
 }
 
+static void debug_print_buffer(const char *data, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    if (i > 0) fputc(' ', stderr);
+    fprintf(stderr, "%02x", data[i] & 255);
+  }
+  fprintf(stderr, "\n");
+}
+
+static bool buffers_equal(const char *expected, const char *received, size_t len) {
+  if (memcmp(expected, received, len) == 0) {
+    return true;
+  }
+  fprintf(stderr, "expected: ");
+  debug_print_buffer(expected, len);
+  fprintf(stderr, "received: ");
+  debug_print_buffer(received, len);
+  return false;
+}
+
 static struct sqlfs_options get_options(const char *password) {
   const struct sqlfs_options options = {
       .filepath = database,
@@ -149,7 +168,7 @@ static void verify_contents(ino_t ino, const char *data, size_t size) {
   size_t nread = 0;
   EXPECT_EQ(sqlfs_read(sqlfs, ino, 0, sizeof(buf), buf, &nread), 0);
   EXPECT_EQ((int)size, (int)nread);
-  EXPECT_EQ(memcmp(buf, data, size), 0);
+  EXPECT(buffers_equal(buf, data, size));
 }
 
 static void test_blocksize() {
@@ -209,7 +228,7 @@ static void do_read_test(int blocksize, int filesize, int max_offset) {
       CHECK(expected_size >= 0);
       EXPECT_EQ((int)size_read, expected_size);
       if (expected_size > 0) {
-        EXPECT_EQ(memcmp(input + i, output, expected_size), 0);
+        EXPECT(buffers_equal(input + i, output, expected_size));
       }
     }
   }
