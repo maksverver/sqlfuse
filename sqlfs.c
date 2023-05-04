@@ -85,7 +85,7 @@ enum statements {
   STMT_READ_DIRENTRIES,
   STMT_READ_DIRENTRIES_START,
   STMT_RENAME,
-  STMT_READ_FILEDATA,
+  STMT_QUERY_FILEDATA_ROWID,
   STMT_UPDATE_FILEDATA,
   STMT_DELETE_FILEDATA,
   NUM_STATEMENTS };
@@ -212,13 +212,11 @@ static const struct statement {
 #define PARAM_RENAME_OLD_ENTRY_NAME 4
     "UPDATE direntries SET dir_ino = ?, entry_name = ? WHERE dir_ino = ? AND entry_name = ?" },
 
-  { STMT_READ_FILEDATA,
-#define PARAM_READ_FILEDATA_INO      1
-#define PARAM_READ_FILEDATA_FROM_IDX 2
-#define PARAM_READ_FILEDATA_COUNT    3
-#define COL_READ_FILEDATA_IDX  0
-#define COL_READ_FILEDATA_DATA 1
-    "SELECT idx, data FROM filedata WHERE ino = ? AND idx >= ? ORDER BY idx LIMIT ?" },
+  { STMT_QUERY_FILEDATA_ROWID,
+#define PARAM_QUERY_FILEDATA_ROWID_INO  1
+#define PARAM_QUERY_FILEDATA_ROWID_IDX  2
+#define COL_QUERY_FILEDATA_ROWID_ROWID  0
+    "SELECT rowid FROM filedata WHERE ino=? AND idx=?" },
 
   { STMT_UPDATE_FILEDATA,
 #define PARAM_UPDATE_FILEDATA_INO  1
@@ -814,6 +812,36 @@ static int sql_rename(struct sqlfs *sqlfs,
   return status == SQLITE_DONE && sqlite3_changes(sqlfs->db) == 1 ? 0 : EIO;
 }
 
+// Queries the rowid of the filedata table for a given inode and block index.
+//
+// On success, the rowid is written to *rowid.
+//
+// Returns:
+//  0 on success
+//  ENOENT if the entry is not found (including if dir_ino didn't exist!)
+//  EIO on SQLite error
+static int sql_query_filedata_rowid(struct sqlfs *sqlfs, ino_t ino, int64_t idx, int64_t *rowid) {
+  sqlite3_stmt *stmt = sqlfs->stmt[STMT_QUERY_FILEDATA_ROWID];
+  CHECK(sqlite3_bind_int64(stmt, PARAM_QUERY_FILEDATA_ROWID_INO, ino) == SQLITE_OK);
+  CHECK(sqlite3_bind_int64(stmt, PARAM_QUERY_FILEDATA_ROWID_IDX, idx) == SQLITE_OK);
+  int status = sqlite3_step(stmt);
+  int err = -1;
+  if (status == SQLITE_ROW) {
+    *rowid = sqlite3_column_int64(stmt, COL_QUERY_FILEDATA_ROWID_ROWID);
+    err = 0;
+  } else if (status == SQLITE_DONE) {
+    err = ENOENT;
+  } else {
+    DLOG("%s(ino=%lld, idx=%lld) status=%d\n",
+        __func__, (long long)ino, (long long)idx, status);
+    err = EIO;
+  }
+  sqlite3_reset(stmt);
+  sqlite3_clear_bindings(stmt);
+  CHECK(err >= 0);
+  return err;
+}
+
 // Reads filedata bytes from the given file into a buffer.
 //
 // If there is not enough file data to fill the buffer, this function will fail!
@@ -832,54 +860,55 @@ static int sql_read_filedata(struct sqlfs *sqlfs, ino_t ino, int64_t blocksize, 
   if (size == 0) {
     return 0;
   }
+
   int err = 0;
   // Range of blocks to read: from block_idx_begin (inclusive) to block_idx_end (exclusive).
   int64_t block_idx_begin = offset/blocksize;
   int64_t block_idx_end = (offset + size + blocksize - 1)/blocksize;
-  sqlite3_stmt *stmt = sqlfs->stmt[STMT_READ_FILEDATA];
-  CHECK(sqlite3_bind_int64(stmt, PARAM_READ_FILEDATA_INO, ino) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, PARAM_READ_FILEDATA_FROM_IDX, block_idx_begin) == SQLITE_OK);
-  CHECK(sqlite3_bind_int64(stmt, PARAM_READ_FILEDATA_COUNT, block_idx_end - block_idx_begin) == SQLITE_OK);
+  sqlite3_blob *blob = NULL;
+
   // Fill buffer by reading a sequence of chunks. Each chunk starts at a block
   // boundary and is at most `blocksize` bytes long (but the last chunk may be
   // shorter than that).
   for (int64_t i = block_idx_begin; i < block_idx_end; ++i) {
+    int64_t rowid = -1;
+
+    // Find rowid for the current block
+    int err = sql_query_filedata_rowid(sqlfs, ino, i, &rowid);
+    if (err != 0) {
+      break;
+    }
+
+    // Open the data BLOB column
+    int open_flags = 0; // readonly
+    int status = (i == block_idx_begin) ?
+        sqlite3_blob_open(sqlfs->db, "main", "filedata", "data", rowid, open_flags, &blob) :
+        sqlite3_blob_reopen(blob, rowid);
+    if (status != SQLITE_OK) {
+      DLOG("%s(ino=%lld, blocksize=%lld, offset=%lld, size=%lld) "
+          "failed to open BLOB! rowid=%lld status=%d\n",
+          __func__, (long long)ino, (long long)blocksize, (long long)offset, (long long) size,
+          (long long)rowid, status);
+      err = EIO;
+      break;
+    }
+
+    // Read required bytes from the BLOB
     int64_t chunk_offset = i*blocksize;
     int64_t chunk_size = int64_min(offset + size - chunk_offset, blocksize);
-    int status = sqlite3_step(stmt);
-    if (status != SQLITE_ROW) {
-      DLOG("%s() status=%d\n", __func__, status);
+    status = chunk_offset < offset ?
+        sqlite3_blob_read(blob, buf, chunk_size - (offset - chunk_offset), offset - chunk_offset) :
+        sqlite3_blob_read(blob, buf + (chunk_offset - offset), chunk_size, 0);
+    if (status != SQLITE_OK) {
+      DLOG("%s(ino=%lld, blocksize=%lld, offset=%lld, size=%lld) "
+          "failed to read from BLOB! rowid=%lld chunk_offset=%lld chunk_size=%lld status=%d\n",
+          __func__, (long long)ino, (long long)blocksize, (long long)offset, (long long) size,
+          (long long)rowid, (long long)chunk_offset, (long long)chunk_size, status);
       err = EIO;
-      goto finish;
-    }
-    int64_t block_idx = sqlite3_column_int64(stmt, COL_READ_FILEDATA_IDX);
-    if (block_idx != i) {
-      DLOG("%s() ino=%lld incorrect block index! expected: %lld received: %lld",
-          __func__, (long long)ino, (long long)i, (long long)block_idx);
-      err = EIO;
-      goto finish;
-    }
-    const char *data_ptr = sqlite3_column_blob(stmt, COL_READ_FILEDATA_DATA);
-    CHECK(data_ptr != NULL);
-    int64_t data_size = sqlite3_column_bytes(stmt, COL_READ_FILEDATA_DATA);
-    if (data_size < chunk_size) {
-      DLOG("%s() ino=%lld idx=%lld incorrect block size! expected: %lld received: %lld",
-          __func__, (long long)ino, (long long)i, (long long)chunk_size, (long long)data_size);
-      err = EIO;
-      goto finish;
-    }
-    if (chunk_offset < offset) {
-      // First chunk. Only copy the part overlapping the range to be read.
-      memcpy(buf, data_ptr + (offset - chunk_offset), chunk_size - (offset - chunk_offset));
-    } else {
-      memcpy(buf + (chunk_offset - offset), data_ptr, chunk_size);
     }
   }
-  CHECK(sqlite3_step(stmt) == SQLITE_DONE);
 
-finish:
-  sqlite3_reset(stmt);
-  sqlite3_clear_bindings(stmt);
+  sqlite3_blob_close(blob);
   return err;
 }
 
