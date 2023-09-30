@@ -7,8 +7,9 @@ To access the database manually, do:
   sqlite> .dump
   etc.
 
-WARNING: sqlite command history is stored in $HOME/.sqlite_history, including
-the PRAGMA key line. You may want to scrub this file afterwards.
+WARNING: Older versions of SQLCipher would save the PRAGMA key line in the
+command line history store at $HOME/.sqlite_history! This was fixed in SQLCipher
+version 4.0.0.
 
 Mounting a database in writable mode requires not just write permission on the
 database file itself, but also write (and execute) permission on the directory.
@@ -45,3 +46,17 @@ Performance notes:
    I tried to mitigate this by using the SQLite BLOB I/O API to access only
    the part of the block I need (see branch blobio), but this doesn't seem to
    help. Not sure why! (Reference: https://www.sqlite.org/c3ref/blob_open.html)
+
+ - The `sqlfuse compact` command runs VACUUM which, by default, uses an
+   in-memory temporary database. This means compacting large filesystems will
+   likely run out of memory! An alternative solution is to use the VACUUM INTO
+   command manually. For example:
+
+     % sqlcipher old.db
+     sqlite> PRAGMA KEY 'password';
+     sqlite> VACUUM INTO 'new.db';
+     sqlite> .quit
+
+   And then, after verifying the new database works correctly:
+
+     % mv new.db old.db
